@@ -1,6 +1,6 @@
 /**
  * Server-rendered HTML templates, inline CSS (< 1.5KB), JSON-LD schemas,
- * category hubs, dark mode, relative timestamps, and ultra-SEO markup.
+ * category hubs, dark mode, relative timestamps, and clean editorial UI.
  */
 
 export const esc = s => String(s || '')
@@ -17,23 +17,18 @@ export const slugify = s =>
     .replace(/^-|-$/g, '')
     .slice(0, 80);
 
-// Inline CSS (~1,190 bytes < 1.5KB) — 680px width, 18px font, 1.6 line-height, dark mode
-export const CSS = `*{margin:0;padding:0;box-sizing:border-box}body{font:18px/1.6 system-ui,-apple-system,sans-serif;max-width:680px;margin:0 auto;padding:1.25rem 1rem;color:#111;background:#fff}h1{font-size:1.55rem;line-height:1.25;margin:.35rem 0 .6rem}h2{font-size:1.2rem;line-height:1.3;margin:.9rem 0 .35rem}h3{font-size:1.05rem;margin:1.1rem 0 .4rem}p{margin:.6rem 0}ul{padding-left:1.3rem;margin:.5rem 0}li{margin:.3rem 0}a{color:#0b57d0}a:visited{color:#681da8}.meta,.s,time{color:#555;font-size:.85rem}.cat{display:inline-block;font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#444;border:1px solid #ccc;border-radius:3px;padding:0 .35rem;text-decoration:none}.sum{font-weight:600}.upd{border-left:3px solid #0b57d0;padding-left:.65rem;font-size:.95rem}article{margin:1.5rem 0;padding-bottom:1.4rem;border-bottom:1px solid #e5e5e5}nav{margin:1.2rem 0}footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #ddd;font-size:.82rem;color:#555}@media(prefers-color-scheme:dark){body{background:#121212;color:#eaeaea}a{color:#8ab4f8}a:visited{color:#c58af9}.meta,.s,time,footer{color:#aaa}.cat{color:#ccc;border-color:#555}article{border-color:#2c2c2c}footer{border-color:#333}.upd{border-color:#8ab4f8}}`;
+// Inline CSS (< 1.5KB) — clean editorial layout, 680px, 18px/1.6, dark mode
+export const CSS = `*{margin:0;padding:0;box-sizing:border-box}body{font:18px/1.6 system-ui,sans-serif;max-width:680px;margin:0 auto;padding:1.2rem 1rem 2rem;color:#111;background:#fff}header{border-bottom:2px solid #111;padding-bottom:.7rem;margin-bottom:1.2rem}.brand{font-size:1.35rem;font-weight:700;color:inherit;text-decoration:none}.sub,.meta,.s{color:#555;font-size:.86rem}.nav{display:flex;flex-wrap:wrap;gap:.45rem .85rem;margin-top:.5rem;font-size:.82rem}.nav a,.kicker{text-decoration:none}.nav a{color:#444}h1{font-size:1.55rem;line-height:1.25;margin:.35rem 0 .5rem}h2{font-size:1.2rem;line-height:1.3;margin:.25rem 0 .35rem}h2.sec{font-size:.92rem;text-transform:uppercase;letter-spacing:.04em;color:#555;margin:1.2rem 0 .3rem}p{margin:.6rem 0}ul{padding-left:1.2rem;margin:.5rem 0}li{margin:.3rem 0}a,.kicker{color:#0f4c81}.kicker{font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}.sum{font-weight:600;border-left:3px solid #0f4c81;padding-left:.7rem}.upd{border-left:3px solid #b45309;padding-left:.7rem;font-size:.95rem}article{margin:1.3rem 0;padding-bottom:1.2rem;border-bottom:1px solid #e5e5e5}footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #e5e5e5;font-size:.82rem;color:#555}@media(prefers-color-scheme:dark){body{background:#111;color:#eaeaea}header{border-color:#444}a,.kicker{color:#7dd3fc}.sub,.meta,.s,.nav a,h2.sec,footer{color:#aaa}.sum{border-color:#7dd3fc}article,footer{border-color:#2a2a2a}}`;
 
 export function timeAgo(iso, nowMs = Date.now()) {
   const diffSec = Math.max(0, Math.floor((nowMs - Date.parse(iso)) / 1000));
   if (diffSec < 60) return 'just now';
   const mins = Math.floor(diffSec / 60);
-  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'} ago`;
-}
-
-export function expiresInLabel(expiresIso, nowMs = Date.now()) {
-  const hours = Math.max(1, Math.ceil((Date.parse(expiresIso) - nowMs) / 3600_000));
-  return `Expires in ${hours} hour${hours === 1 ? '' : 's'}`;
+  return `${days}d ago`;
 }
 
 function parseJsonField(raw, fallback) {
@@ -66,8 +61,14 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article')
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${canon}">${hreflangLinks(canon, geos)}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${canon}"><meta property="og:type" content="${ogType}"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
+function siteHeader(siteName, isHome = false) {
+  const cats = ['Sports', 'Tech', 'Entertainment', 'Business', 'Science', 'Weather', 'Gaming'];
+  const navLinks = `<a href="/">All</a>` + cats.map(c => `<a href="/c/${slugify(c)}">${c}</a>`).join('');
+  return `<header><a class="brand" href="/">${esc(siteName)}</a>${isHome ? '<p class="sub">Real-time factual briefings on what is trending now.</p>' : ''}<nav class="nav" aria-label="Categories">${navLinks}</nav></header>`;
+}
+
 function htmlFoot(email) {
-  return `<footer><p>Auto-generated summaries from public trend data. Sources listed. Content expires after 48 hours unless extended by search demand.</p><p>Contact: <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer></body></html>`;
+  return `<footer><p>Factual summaries grounded in public news reports. Contact: <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer></body></html>`;
 }
 
 function findMatchingLiveLinks(post, livePosts) {
@@ -102,7 +103,7 @@ function renderSourcesList(post, linkOut = true) {
           : `<li>${label}</li>`;
       })
       .join('');
-    return `<h2>Sources</h2><ul>${items}</ul>`;
+    return `<h2 class="sec">Sources</h2><ul>${items}</ul>`;
   }
   return `<p class="s"><strong>Sources:</strong> ${esc(post.sources)}</p>`;
 }
@@ -119,19 +120,19 @@ function renderPostBody(post, livePosts, nowMs, { isHome = false } = {}) {
   let h = '';
   if (summary) h += `<p class="sum">${esc(summary)}</p>`;
   if (whatHappened) {
-    if (!isHome) h += '<h2>What Happened</h2>';
+    if (!isHome) h += '<h2 class="sec">What Happened</h2>';
     h += `<p>${esc(whatHappened)}</p>`;
   }
   if (whyTrending) {
-    if (!isHome) h += '<h2>Why It Is Trending</h2>';
+    if (!isHome) h += '<h2 class="sec">Why It Is Trending</h2>';
     h += `<p>${esc(whyTrending)}</p>`;
   }
   if (keyFacts.length) {
-    if (!isHome) h += '<h2>Key Facts</h2>';
+    if (!isHome) h += '<h2 class="sec">Key Facts</h2>';
     h += '<ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul>';
   }
   if (whatNext) {
-    if (!isHome) h += '<h2>What to Know Next</h2>';
+    if (!isHome) h += '<h2 class="sec">What to Know Next</h2>';
     h += `<p>${esc(whatNext)}</p>`;
   }
   for (const u of updates) {
@@ -139,14 +140,14 @@ function renderPostBody(post, livePosts, nowMs, { isHome = false } = {}) {
   }
   if (alsoMatches.length) {
     const links = alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ');
-    h += `<p class="s"><strong>Related searches:</strong> ${links}</p>`;
+    h += `<p class="s"><strong>Related:</strong> ${links}</p>`;
   }
   h += renderSourcesList(post, !isHome);
   return h;
 }
 
 export function homePage(posts, settings, siteUrl, nowMs = Date.now()) {
-  const desc = 'Live factual summaries of trending topics, updated every minute from verified public news sources and auto-cleaned after 48 hours.';
+  const desc = 'Live factual briefings on trending topics, updated every minute from verified news sources.';
   const ld = JSON.stringify([
     {
       '@context': 'https://schema.org',
@@ -169,39 +170,38 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now()) {
   ]).replace(/<\//g, '<\\/');
 
   let h = htmlHead(
-    `${settings.siteName} — Live Factual Trend Summaries`,
+    `${settings.siteName} — Live Factual Trend Briefings`,
     desc,
     `${siteUrl}/`,
     settings.geos,
     `<script type="application/ld+json">${ld}</script>`,
     'website'
   );
-  h += `<header><h1><a href="/" style="color:inherit;text-decoration:none">${esc(settings.siteName)}</a></h1><p class="meta">${esc(desc)}</p></header><main>`;
+  h += siteHeader(settings.siteName, true) + '<main><h1 style="font-size:1.1rem;color:#52525b;margin-bottom:.75rem">Latest Trending Briefings</h1>';
 
   for (const p of posts) {
     const cat = p.category || 'News';
     const catSlug = slugify(cat);
     const relTime = timeAgo(p.created_at, nowMs);
     h += `<article id="${esc(p.slug)}">`;
-    h += `<a class="cat" href="/c/${esc(catSlug)}">${esc(cat)}</a>`;
-    h += `<h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
-    h += `<p class="meta"><time datetime="${esc(p.created_at)}">${relTime}</time>`;
+    h += `<p class="meta"><a class="kicker" href="/c/${esc(catSlug)}">${esc(cat)}</a> · <time datetime="${esc(p.created_at)}">${relTime}</time>`;
     if (p.updated_at && p.updated_at !== p.created_at) {
       h += ` · Updated ${timeAgo(p.updated_at, nowMs)}`;
     }
     h += `</p>`;
+    h += `<h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
     h += renderPostBody(p, posts, nowMs, { isHome: true });
     h += `</article>`;
   }
 
-  if (!posts.length) h += '<p>No active trends right now. Check back soon.</p>';
+  if (!posts.length) h += '<p>No active briefings right now. Check back shortly.</p>';
   return h + '</main>' + htmlFoot(settings.contactEmail);
 }
 
 export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Date.now()) {
   const catSlug = slugify(categoryName);
   const canon = `${siteUrl}/c/${catSlug}`;
-  const desc = `Latest live ${categoryName.toLowerCase()} trend summaries from verified news outlets, updated every minute on ${settings.siteName}.`;
+  const desc = `Latest live ${categoryName.toLowerCase()} briefings from verified news outlets, updated every minute on ${settings.siteName}.`;
   const title = `${categoryName} Trends — ${settings.siteName}`.slice(0, 60);
 
   const ld = JSON.stringify([
@@ -234,15 +234,14 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
   ]).replace(/<\//g, '<\\/');
 
   let h = htmlHead(title, desc, canon, settings.geos, `<script type="application/ld+json">${ld}</script>`, 'website');
-  h += `<main><p><a href="/">← All Trends</a></p><h1>${esc(categoryName)} Trends</h1><p class="meta">${esc(desc)}</p>`;
+  h += siteHeader(settings.siteName, false) + `<main><h1>${esc(categoryName)} Trends</h1><p class="meta">${esc(desc)}</p>`;
   for (const p of posts) {
-    h += `<article id="${esc(p.slug)}"><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
-    h += `<p class="meta"><time datetime="${esc(p.created_at)}">${timeAgo(p.created_at, nowMs)}</time></p>`;
+    h += `<article id="${esc(p.slug)}"><p class="meta"><time datetime="${esc(p.created_at)}">${timeAgo(p.created_at, nowMs)}</time></p><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
     h += renderPostBody(p, posts, nowMs, { isHome: true });
     h += `</article>`;
   }
-  if (!posts.length) h += `<p>No active ${esc(categoryName.toLowerCase())} trends right now. <a href="/">View all trends</a>.</p>`;
-  return h + `<p><a href="/">← Back to all trends</a></p></main>` + htmlFoot(settings.contactEmail);
+  if (!posts.length) h += `<p>No active ${esc(categoryName.toLowerCase())} briefings right now. <a href="/">View all trends</a>.</p>`;
+  return h + `<p><a href="/">← All Trends</a></p></main>` + htmlFoot(settings.contactEmail);
 }
 
 export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Date.now()) {
@@ -283,51 +282,52 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   const ldScripts = `<script type="application/ld+json">${JSON.stringify([newsLd, breadcrumbLd]).replace(/<\//g, '<\\/')}</script>`;
 
   let h = htmlHead(title, desc, canon, settings.geos, ldScripts);
-  h += `<main><p><a href="/">← All Trends</a> · <a href="/c/${esc(catSlug)}">${esc(cat)}</a></p>`;
-  h += `<article id="${esc(post.slug)}">`;
-  h += `<a class="cat" href="/c/${esc(catSlug)}">${esc(cat)}</a>`;
-  h += `<h1>${esc(post.title)}</h1>`;
-  h += `<p class="meta">Published <time datetime="${esc(post.created_at)}">${timeAgo(post.created_at, nowMs)}</time>`;
+  h += siteHeader(settings.siteName, false);
+  h += `<main><article id="${esc(post.slug)}">`;
+  h += `<p class="meta"><a class="kicker" href="/c/${esc(catSlug)}">${esc(cat)}</a> · Published <time datetime="${esc(post.created_at)}">${timeAgo(post.created_at, nowMs)}</time>`;
   if (post.updated_at && post.updated_at !== post.created_at) {
     h += ` · Updated <time datetime="${esc(post.updated_at)}">${timeAgo(post.updated_at, nowMs)}</time>`;
   }
-  h += ` · ${expiresInLabel(post.expires_at, nowMs)}</p>`;
+  h += `</p>`;
+  h += `<h1>${esc(post.title)}</h1>`;
   h += renderPostBody(post, livePosts, nowMs, { isHome: false });
   h += `</article>`;
 
   if (related.length) {
-    h += '<nav><h2>More trending now</h2><ul>';
+    h += '<nav><h2 class="sec">More trending now</h2><ul>';
     for (const r of related) {
       const rCat = r.category || 'News';
-      h += `<li><a class="cat" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> <a href="/p/${esc(r.slug)}">${esc(r.title)}</a></li>`;
+      h += `<li><a class="kicker" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · <a href="/p/${esc(r.slug)}">${esc(r.title)}</a></li>`;
     }
     h += '</ul></nav>';
   }
-  h += `<p><a href="/">← Back to all trends</a></p></main>` + htmlFoot(settings.contactEmail);
+  h += `<p><a href="/">← All Trends</a></p></main>` + htmlFoot(settings.contactEmail);
   return h;
 }
 
 export function aboutPage(settings, siteUrl) {
   return htmlHead(
     `About — ${settings.siteName}`,
-    'How this ephemeral, source-grounded trend summary site works and verifies every public news claim.',
+    'How this real-time, source-grounded trend briefing site verifies public news reports.',
     `${siteUrl}/about`,
     settings.geos,
     '',
     'website'
   ) +
-    `<main><p><a href="/">← All Trends</a></p><h1>About ${esc(settings.siteName)}</h1>` +
-    `<p>This site publishes short, factual summaries of trending search topics using only headlines and snippets from Google Trends and Google News RSS feeds.</p>` +
+    siteHeader(settings.siteName, false) +
+    `<main><h1>About ${esc(settings.siteName)}</h1>` +
+    `<p>This site publishes short, factual briefings on trending search topics using only headlines and snippets from public news feeds.</p>` +
     `<ul><li>Every fact, number, and date is checked against listed news outlets before publishing.</li>` +
-    `<li>Posts expire automatically after 48 hours unless readers from search engines show ongoing interest (extended up to 7 days, then deleted).</li>` +
+    `<li>Briefings rotate automatically as trends evolve.</li>` +
     `<li>Sensitive topics, rumors, and single-outlet stories are filtered out.</li>` +
     `<li>No personal data, IP addresses, ads, or analytics scripts are used.</li>` +
-    `<li>Contact: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul></main>` +
+    `<li>Contact: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul>` +
+    `<p><a href="/">← All Trends</a></p></main>` +
     htmlFoot(settings.contactEmail);
 }
 
 export const gonePage = () =>
-  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,follow"><title>Post Expired</title><style>${CSS}</style></head><body><main><h1>This post has expired</h1><p>Content on this site is automatically removed after its lifetime ends.</p><p><a href="/">← View current trends</a></p></main></body></html>`;
+  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,follow"><title>Post Expired</title><style>${CSS}</style></head><body><main><h1>This briefing is no longer active</h1><p>This story has rotated out of the current trending window.</p><p><a href="/">← View current trends</a></p></main></body></html>`;
 
 export const endedPage = () =>
-  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Site Ended</title><style>${CSS}</style></head><body><main><h1>This site has ended</h1><p>This ephemeral trend site has concluded its run and all posts have expired.</p></main></body></html>`;
+  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Site Ended</title><style>${CSS}</style></head><body><main><h1>This site has ended</h1><p>This trend site has concluded its run.</p></main></body></html>`;

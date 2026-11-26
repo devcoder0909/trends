@@ -301,7 +301,7 @@ export async function handleScheduled(env) {
       liveTitles.add(post.title.toLowerCase());
       liveRows.push({ title: post.title, topic: item.title });
       if (status === 'published') {
-        newUrls.push(`${siteUrl}/p/${hash}`);
+        newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}/c/${slugify(post.category || 'News')}`, `${siteUrl}/`);
         count++;
       }
     } catch { /* duplicate slug — skip gracefully */ }
@@ -349,7 +349,12 @@ export async function handleFetch(request, env, ctx) {
     if (shouldCountSearchHit(request) && ctx?.waitUntil) {
       ctx.waitUntil(recordSearchHit(db, null, now));
     }
-    return htmlRes(homePage(await live(), settings, siteUrl, nowMs), 200, SEO_INDEX_HEADERS);
+    const posts = await live();
+    const lastMod = posts[0] ? new Date(posts[0].updated_at || posts[0].created_at).toUTCString() : new Date(nowMs).toUTCString();
+    return htmlRes(homePage(posts, settings, siteUrl, nowMs), 200, {
+      ...SEO_INDEX_HEADERS,
+      'Last-Modified': lastMod,
+    });
   }
 
   // Category hub pages (/c/{category}) for clean BreadcrumbList & hub-and-spoke SEO
@@ -384,7 +389,10 @@ export async function handleFetch(request, env, ctx) {
       const diffCat = others.filter(p => (p.category || 'News') !== (post.category || 'News'));
       const related = [...sameCat, ...diffCat].slice(0, 6);
 
-      return htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, SEO_INDEX_HEADERS);
+      return htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, {
+        ...SEO_INDEX_HEADERS,
+        'Last-Modified': new Date(post.updated_at || post.created_at).toUTCString(),
+      });
     }
 
     const wasSeen = await db.prepare('SELECT 1 FROM seen_topics WHERE slug = ?').bind(slug).first();

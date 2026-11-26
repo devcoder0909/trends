@@ -173,7 +173,7 @@ async function run() {
   const extHtml = await extRes.text();
   record(
     '3-hit post extended to 7 days and stays live at 49h',
-    extRow.extended === 1 && extHoursLeft >= 118 && extRes.status === 200 && cycle.extendedSlugs.includes('google-hit-post') && extHtml.includes('Expires in'),
+    extRow.extended === 1 && extHoursLeft >= 118 && extRes.status === 200 && cycle.extendedSlugs.includes('google-hit-post') && !extHtml.includes('Expires in'),
     `extended=${extRow.extended}, hoursLeft=${extHoursLeft}, status=${extRes.status}`
   );
 

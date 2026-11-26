@@ -79,7 +79,7 @@ export async function pingIndexNow(env, urls) {
   const host = String(env.SITE_HOST || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
   if (!env.INDEXNOW_KEY || !host || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
   try {
-    await fetch('https://api.indexnow.org/indexnow', {
+    const res = await fetch('https://api.indexnow.org/indexnow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -89,5 +89,8 @@ export async function pingIndexNow(env, urls) {
         urlList: uniqueUrls.slice(0, 10_000),
       }),
     });
-  } catch { /* best-effort */ }
+    if (!res.ok) console.error('IndexNow HTTP', res.status);
+  } catch (err) {
+    console.error('IndexNow error:', err.message);
+  }
 }
