@@ -30,7 +30,7 @@ export const slugify = s =>
     .slice(0, 80);
 
 // Inline CSS (< 1.5KB) — Google News dark theme (#202124 / #292a2d / #8ab4f8 / #81c995)
-export const CSS = `*{margin:0;padding:0}body{font:14px/1.4 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}.k{color:#81c995}p,ul{color:#bdc1c6}p,ul,h1,h2,img{margin:0 0 5px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}header{border-bottom:1px solid #3c4043}.w{max-width:840px;margin:auto;padding:8px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 20em;padding:2px 2px 2px 8px}button{font:inherit}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#8ab4f8}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:4px 9px;background:#303134;border-radius:9em}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:9px;margin:8px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:12px}.g{grid-template-columns:1fr 1fr}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 11px}h1{font-size:21px}}`;
+export const CSS = `*{margin:0;padding:0}body{font:14px/1.4 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}.k{color:#81c995}p,ul{color:#bdc1c6}p,ul,h1,h2,img{margin:0 0 5px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}header{border-bottom:1px solid #3c4043}.w{max-width:840px;margin:auto;padding:8px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 20em;padding:2px 2px 2px 8px}button{font:inherit}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#8ab4f8}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:5px 9px;background:#303134;border-radius:9em}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:9px;margin:8px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:12px}.g{grid-template-columns:1fr 1fr}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 11px}h1{font-size:21px}}`;
 
 export const BACK_SCRIPT = `document.querySelectorAll('[data-bk]').forEach(function(a){a.addEventListener('click',function(e){try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){e.preventDefault();history.back()}}catch(x){}})})`;
 export const BACK_SCRIPT_HASH = 'sha256-gYnBAx/IGgY222gaMwV06vj32azHtsaxP2c3Mm8K7EY=';
@@ -117,7 +117,8 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
     : '<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">';
   const imgUrl = ogImage || (canon ? `${new URL(canon).origin}/og.png` : '/og.png');
   const ogUrl = canon ? `<meta property="og:url" content="${canon}">` : '';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
+  const preconnect = '<link rel="preconnect" href="https://news.google.com"><link rel="dns-prefetch" href="https://news.google.com">';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
 const LOGO_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#34a853"/><path d="M6.5 14.5l4-4 2.5 2.5 4.5-4.5v2.5H19V6.5h-4.5V8H17l-4 4-2.5-2.5-5 5z" fill="#fff"/></svg>';
@@ -137,7 +138,8 @@ function htmlFoot(email) {
   const catSilos = NAV_CATEGORIES.slice(0, 8)
     .map(c => `<a href="/c/${slugify(c)}">${esc(c)}</a>`)
     .join(' · ');
-  return `<footer class="w m"><p>Hubs: <a href="/">Home</a> · ${catSilos}</p><p>Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
+  const yr = new Date().getFullYear();
+  return `<footer class="w m" role="contentinfo"><p>Hubs: <a href="/">Home</a> · ${catSilos}</p><p>© ${yr} Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
 }
 
 function renderBackBar(crumbs = [], currentLabel = '', backHref = '/') {
@@ -555,10 +557,35 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     ],
   };
 
+  // FAQ schema from key_facts for Google rich snippets (People Also Ask eligibility)
+  const keyFactsArr = parseJsonField(post.key_facts || post.bullets, [])
+    .map(f => stripInlineSourceTags(f, post.sources))
+    .filter(Boolean);
+  const topicDisplay = formatDisplayTopic(post.topic) || post.title;
+  const faqLd = keyFactsArr.length >= 2 ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: keyFactsArr.slice(0, 3).map((fact, i) => ({
+      '@type': 'Question',
+      name: i === 0 ? `What happened with ${topicDisplay}?`
+        : i === 1 ? `Why is ${topicDisplay} trending?`
+        : `What should I know next about ${topicDisplay}?`,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: fact,
+      },
+    })),
+  } : null;
+
+  const ldArr = [newsLd, breadcrumbLd];
+  if (faqLd) ldArr.push(faqLd);
+
   const swgTags = `<script async type="application/javascript" src="https://news.google.com/swg/js/v1/swg-basic.js"></script><script>${SWG_SCRIPT}</script>`;
-  const ldScripts = `<script type="application/ld+json">${JSON.stringify([newsLd, breadcrumbLd]).replace(/<\//g, '<\\/')}</script>${swgTags}`;
+  const ldScripts = `<script type="application/ld+json">${JSON.stringify(ldArr).replace(/<\//g, '<\\/')}</script>${swgTags}`;
 
   let h = htmlHead(title, desc, canon, settings.geos, ldScripts, 'article', ogImg);
+  // Inject article-specific OG meta right after </title>
+  h = h.replace('</head>', `<meta property="article:published_time" content="${esc(post.created_at)}"><meta property="article:modified_time" content="${esc(dateModified)}"><meta property="article:section" content="${esc(cat)}"></head>`);
   h += siteHeader(settings.siteName, catSlug) + '<main class="w">';
   h += renderBackBar(
     [{ label: 'Home', href: '/' }, { label: cat, href: `/c/${catSlug}` }],
