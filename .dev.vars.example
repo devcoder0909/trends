@@ -1,0 +1,5 @@
+# Copy this file to .dev.vars for local development
+# cp .dev.vars.example .dev.vars
+
+DEV_MODE=true
+GEMINI_API_KEY=your-gemini-api-key-here

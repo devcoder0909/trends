@@ -1,0 +1,29 @@
+name = "trends"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Cron trigger: every minute
+[triggers]
+crons = ["* * * * *"]
+
+# D1 database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "trends-db"
+database_id = "YOUR_DATABASE_ID"   # ← paste from `wrangler d1 create trends-db`
+
+# Workers AI binding
+[ai]
+binding = "AI"
+
+# Environment variables — edit these before deploying
+[vars]
+SITE_HOST       = "trends.example.com"      # your domain (no protocol)
+CONTACT_EMAIL   = "you@example.com"
+GEO_LIST        = "US"                       # comma-separated: US,GB,IN,DE
+INDEXNOW_KEY    = "GENERATE_A_32_CHAR_HEX"   # node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
+# SITE_END_AT   = "2024-12-01T00:00:00Z"     # uncomment & set 48h after first deploy
+# DEV_MODE      = "true"                     # uncomment for local testing
+
+# Secrets (set via CLI, not here):
+#   npx wrangler secret put GEMINI_API_KEY
