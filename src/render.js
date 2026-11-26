@@ -119,7 +119,7 @@ function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
   const tab = (slug, label, href) =>
     `<a${activeTab === slug ? ' class="on"' : ''} href="${href}">${label}</a>`;
   const navLinks = tab('home', 'Home', '/') + NAV_CATEGORIES.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
-  return `<header><div class="w"><div class="f"><a class="b" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics, news &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
+  return `<header><div class="w"><div class="f"><a class="b" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics, news &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
 }
 
 function htmlFoot(email) {
@@ -487,6 +487,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   const ogImg = `${siteUrl}/og/${post.slug}.png`;
   const dateModified = post.updated_at || post.created_at;
   const keywords = [post.topic, cat, ...parseJsonField(post.also_searched, [])].filter(Boolean).join(', ');
+  const sourceUrls = parseJsonField(post.source_urls, []).map(s => s.url).filter(Boolean);
 
   const newsLd = {
     '@context': 'https://schema.org',
@@ -501,13 +502,15 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     ],
     articleSection: cat,
     keywords,
+    about: { '@type': 'Thing', name: post.topic || cat },
+    ...(sourceUrls.length ? { citation: sourceUrls } : {}),
     inLanguage: 'en',
     isAccessibleForFree: true,
     speakable: { '@type': 'SpeakableSpecification', cssSelector: ['h1', '.sum'] },
     mainEntityOfPage: canon,
-    author: { '@type': 'Organization', name: settings.siteName, url: siteUrl },
+    author: { '@type': ['Organization', 'NewsMediaOrganization'], name: settings.siteName, url: siteUrl },
     publisher: {
-      '@type': 'Organization',
+      '@type': ['Organization', 'NewsMediaOrganization'],
       name: settings.siteName,
       url: siteUrl,
       logo: { '@type': 'ImageObject', url: `${siteUrl}/og.png`, width: 1200, height: 630 },

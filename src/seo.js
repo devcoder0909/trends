@@ -1,12 +1,11 @@
 /**
  * SEO endpoints & instant indexing:
- * - XML Sitemap (posts + category hubs), 48h Google News Sitemap, robots.txt, RSS 2.0 (with WebSub hub)
- * - IndexNow (Bing, Yandex, DuckDuckGo)
- * - WebSub / PubSubHubbub ping (free instant RSS notification)
- * - Optional Google Indexing API v3 via Web Crypto RS256 Service Account JWT
+ * - XML Sitemap with <image:image>, 48h Google News Sitemap, rich RSS 2.0 (<content:encoded> & <media:content>)
+ * - Search & AI-Search friendly robots.txt + dynamic /llms.txt
+ * - IndexNow (Bing, Yandex, DuckDuckGo), WebSub (Google PubSubHubbub), Google Indexing API v3
  */
 
-import { slugify } from './render.js';
+import { slugify, NAV_CATEGORIES } from './render.js';
 
 const esc = s => String(s || '')
   .replace(/&/g, '&amp;')
@@ -14,13 +13,16 @@ const esc = s => String(s || '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+const timeoutSig = (ms = 7000) =>
+  (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+
 let cachedGoogleToken = null;
 let cachedGoogleTokenExp = 0;
 
 export function sitemapXml(posts, siteUrl) {
-  let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
+  let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">';
   const latestMod = posts[0] ? (posts[0].updated_at || posts[0].created_at) : '';
-  x += `<url><loc>${siteUrl}/</loc>${latestMod ? `<lastmod>${esc(latestMod)}</lastmod>` : ''}<changefreq>always</changefreq><priority>1.0</priority></url>`;
+  x += `<url><loc>${siteUrl}/</loc>${latestMod ? `<lastmod>${esc(latestMod)}</lastmod>` : ''}<changefreq>always</changefreq><priority>1.0</priority><image:image><image:loc>${siteUrl}/og.png</image:loc><image:title>Trending Now</image:title></image:image></url>`;
   x += `<url><loc>${siteUrl}/about</loc><priority>0.3</priority></url>`;
 
   const catLatest = new Map();
@@ -36,7 +38,8 @@ export function sitemapXml(posts, siteUrl) {
   for (const p of posts) {
     const lastmod = p.updated_at || p.created_at;
     const priority = p.extended ? '0.9' : '0.8';
-    x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><lastmod>${esc(lastmod)}</lastmod><priority>${priority}</priority></url>`;
+    const imgLoc = p.image_url || `${siteUrl}/og/${esc(p.slug)}.png`;
+    x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><lastmod>${esc(lastmod)}</lastmod><priority>${priority}</priority><image:image><image:loc>${esc(imgLoc)}</image:loc><image:title>${esc(p.title)}</image:title></image:image></url>`;
   }
   return x + '</urlset>';
 }
@@ -59,16 +62,64 @@ export function newsSitemapXml(posts, siteUrl, siteName = 'Trending Now', nowMs 
   return x + '</urlset>';
 }
 
-export const robotsTxt = siteUrl =>
-  `User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/sitemap.xml\nSitemap: ${siteUrl}/news-sitemap.xml\n`;
+export const robotsTxt = siteUrl => [
+  'User-agent: *',
+  'Allow: /',
+  'Disallow: /search',
+  'Content-Signal: search=yes, ai-input=yes',
+  '',
+  'User-agent: Googlebot',
+  'Allow: /',
+  '',
+  'User-agent: Googlebot-News',
+  'Allow: /',
+  '',
+  'User-agent: OAI-SearchBot',
+  'Allow: /',
+  '',
+  'User-agent: Claude-SearchBot',
+  'Allow: /',
+  '',
+  'User-agent: PerplexityBot',
+  'Allow: /',
+  '',
+  `Sitemap: ${siteUrl}/sitemap.xml`,
+  `Sitemap: ${siteUrl}/news-sitemap.xml`,
+  '',
+].join('\n');
+
+export function llmsTxt(posts, siteUrl, siteName = 'Trending Now') {
+  const lines = [
+    `# ${siteName}`,
+    '',
+    `> Real-time source-grounded factual briefings on trending search topics across sports, tech, business, science, entertainment, and news. Updated every minute from verified public outlets.`,
+    '',
+    '## Feeds & Sitemaps',
+    `- [XML Sitemap](${siteUrl}/sitemap.xml): All live briefings and category hubs`,
+    `- [Google News Sitemap](${siteUrl}/news-sitemap.xml): Breaking briefings from the last 48 hours`,
+    `- [RSS 2.0 Feed](${siteUrl}/rss.xml): Full factual briefing stream`,
+    '',
+    '## Categories',
+    ...NAV_CATEGORIES.map(c => `- [${c}](${siteUrl}/c/${slugify(c)}): Latest verified ${c.toLowerCase()} briefings`),
+    '',
+    '## Latest Live Briefings',
+    ...posts.slice(0, 20).map(p => `- [${p.title}](${siteUrl}/p/${p.slug}): ${p.summary || p.what_happened || ''}`),
+    '',
+  ];
+  return lines.join('\n');
+}
 
 export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
-  let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${esc(siteName)}</title><link>${siteUrl}</link><atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/><atom:link rel="self" type="application/rss+xml" href="${siteUrl}/rss.xml"/><description>Live factual trending topic summaries</description>`;
+  let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>${esc(siteName)}</title><link>${siteUrl}</link><atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/><atom:link rel="self" type="application/rss+xml" href="${siteUrl}/rss.xml"/><description>Live factual trending topic summaries verified across multiple public news sources</description><language>en</language>`;
   for (const p of posts) {
     const pub = new Date(p.updated_at || p.created_at).toUTCString();
     const desc = p.summary || p.body || '';
     const cat = esc(p.category || 'News');
-    x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><category>${cat}</category><pubDate>${pub}</pubDate><description>${esc(desc)}</description><enclosure url="${siteUrl}/og/${esc(p.slug)}.png" type="image/png" length="3000"/></item>`;
+    const imgUrl = p.image_url || `${siteUrl}/og/${esc(p.slug)}.png`;
+    let facts = [];
+    try { facts = JSON.parse(p.key_facts || p.bullets || '[]') || []; } catch {}
+    const fullHtml = `<p>${esc(desc)}</p><p>${esc(p.what_happened || '')}</p><p>${esc(p.why_trending || '')}</p>${facts.length ? `<ul>${facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}<p>Sources: ${esc(p.sources || '')}</p>`;
+    x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><category>${cat}</category><pubDate>${pub}</pubDate><description>${esc(desc)}</description><content:encoded><![CDATA[${fullHtml.replace(/\]\]>/g, ']]&gt;')}]]></content:encoded><media:content url="${esc(imgUrl)}" medium="image"/><enclosure url="${esc(imgUrl)}" type="${p.image_url ? 'image/jpeg' : 'image/png'}" length="6000"/></item>`;
   }
   return x + '</channel></rss>';
 }
@@ -81,6 +132,7 @@ export async function pingIndexNow(env, urls) {
     const res = await fetch('https://api.indexnow.org/indexnow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: timeoutSig(7000),
       body: JSON.stringify({
         host,
         key: env.INDEXNOW_KEY,
@@ -100,6 +152,7 @@ export async function pingWebSub(env, siteUrl) {
     await fetch('https://pubsubhubbub.appspot.com/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: timeoutSig(7000),
       body: `hub.mode=publish&hub.url=${encodeURIComponent(`${siteUrl}/rss.xml`)}`,
     });
   } catch { /* best-effort */ }
@@ -149,6 +202,7 @@ async function getGoogleAccessToken(serviceAccountJson) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    signal: timeoutSig(7000),
     body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
   });
   if (!res.ok) throw new Error(`Google OAuth HTTP ${res.status}`);
@@ -161,7 +215,6 @@ async function getGoogleAccessToken(serviceAccountJson) {
 /**
  * Notify Google Search Indexing API v3 when GOOGLE_INDEXING_KEY secret is set.
  * Runs concurrently for instant notification velocity.
- * Type: 'URL_UPDATED' | 'URL_DELETED'
  */
 export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
   const uniqueUrls = [...new Set(urls)].filter(Boolean).slice(0, 10);
@@ -176,6 +229,7 @@ export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
+          signal: timeoutSig(7000),
           body: JSON.stringify({ url, type }),
         });
         if (!res.ok) console.error('Google Indexing HTTP', res.status, url, await res.text());

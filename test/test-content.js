@@ -187,6 +187,55 @@ async function run() {
     }
   }
 
+  // Resilience regression checks (prevent past production false positives & test grounded fallback)
+  const mayVerbDraft = {
+    ...baseDraft,
+    why_trending: 'Officials may confirm schedule details as supporters review key moments from the Premier League match in London.',
+    what_to_know_next: 'Record-breaking viewership may continue ahead of upcoming Arsenal and Chelsea fixtures this weekend.',
+  };
+  const mayCheck = validateDraft(mayVerbDraft, baseTopic.topic, baseTopic.sources, new Set());
+  if (!mayCheck.ok) {
+    console.error(`[FAIL] Modal verb "may" + hyphenated "record-breaking" -> ${mayCheck.reason}`);
+    failures++;
+  } else {
+    console.log('[PASS] Modal verb "may" & compound "record-breaking" allowed without false positive');
+  }
+
+  const mayDateBad = {
+    ...baseDraft,
+    what_happened: baseDraft.what_happened + ' A May 5 replay was noted by reporters.',
+  };
+  if (validateDraft(mayDateBad, baseTopic.topic, baseTopic.sources, new Set()).ok) {
+    console.error('[FAIL] Ungrounded calendar date "May 5" should reject');
+    failures++;
+  } else {
+    console.log('[REJECT] Ungrounded calendar date "May 5" properly rejected');
+  }
+
+  const instDraft = {
+    ...baseDraft,
+    why_trending: 'The University and The UK Ministry watched Premier League reaction in London after Arsenal played Chelsea.',
+  };
+  const instCheck = validateDraft(instDraft, baseTopic.topic, baseTopic.sources, new Set());
+  if (!instCheck.ok) {
+    console.error(`[FAIL] Institutional noun phrase check -> ${instCheck.reason}`);
+    failures++;
+  } else {
+    console.log('[PASS] Institutional generic noun phrases allowed without false positive');
+  }
+
+  const fallbackRes = await generateAndValidatePost(
+    { AI: { run() { throw new Error('Too many subrequests by single Worker invocation.'); } } },
+    { topic: baseTopic.topic, sources: baseTopic.sources },
+    new Set()
+  );
+  if (!fallbackRes.ok || !fallbackRes.usedFallback) {
+    console.error('[FAIL] Deterministic multi-outlet fallback did not recover from LLM infra error');
+    failures++;
+  } else {
+    console.log('[PASS] Deterministic multi-outlet failsafe recovered verified topic from LLM infra failure');
+  }
+
   // Verify SEO meta description length (120-158 chars), slugify, CSS size, and near-duplicate filter
   const metaDesc = buildMetaDescription(baseDraft);
   if (metaDesc.length < 120 || metaDesc.length > 158) {

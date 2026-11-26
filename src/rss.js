@@ -127,10 +127,13 @@ export async function fetchGoogleNews(topic, geo = 'US') {
   const g = ENGLISH_NEWS_GEOS.has(String(geo || '').toUpperCase()) ? geo.toUpperCase() : 'US';
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-${g}&gl=${g}&ceid=${g}:en`;
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'TrendBot/1.0' } });
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'TrendBot/1.0' },
+      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(7000) : undefined,
+    });
     if (!res.ok) return [];
     const xml = await res.text();
-    return parseGoogleNewsRSS(xml, 10);
+    return parseGoogleNewsRSS(xml, 12);
   } catch {
     return [];
   }

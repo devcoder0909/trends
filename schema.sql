@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS pending_topics (
   approx_traffic INTEGER NOT NULL DEFAULT 0,
   source_json    TEXT    NOT NULL DEFAULT '[]',
   first_seen_at  TEXT    NOT NULL,
-  last_tried_at  TEXT    NOT NULL
+  last_tried_at  TEXT    NOT NULL,
+  retry_count    INTEGER NOT NULL DEFAULT 0
 );
 
 -- Audit log of rejected topics for review

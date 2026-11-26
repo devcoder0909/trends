@@ -323,6 +323,23 @@ async function run() {
     `imgs=${imgTags.length}`
   );
 
+  // Case 7: GEO, AI Search Crawlers, llms.txt, <image:image> sitemap, rich RSS & NewsMediaOrganization schema
+  const robotsText = await (await handleFetch(new Request('https://trends.example.com/robots.txt'), uiEnv, ctx)).text();
+  const llmsRes = await handleFetch(new Request('https://trends.example.com/llms.txt'), uiEnv, ctx);
+  const llmsText = await llmsRes.text();
+  const uiSitemap = await (await handleFetch(new Request('https://trends.example.com/sitemap.xml'), uiEnv, ctx)).text();
+  const uiRss = await (await handleFetch(new Request('https://trends.example.com/rss.xml'), uiEnv, ctx)).text();
+  record(
+    'robots.txt AI bots, /llms.txt, <image:image> sitemap, <content:encoded> RSS & NewsMediaOrganization schema',
+    robotsText.includes('OAI-SearchBot') && robotsText.includes('Claude-SearchBot') &&
+    robotsText.includes('PerplexityBot') && robotsText.includes('Content-Signal:') &&
+    llmsRes.status === 200 && llmsText.includes('# Trending Now') && llmsText.includes('/p/topic-15') &&
+    uiSitemap.includes('xmlns:image=') && uiSitemap.includes('<image:image>') &&
+    uiRss.includes('<content:encoded>') && uiRss.includes('<media:content') &&
+    imgPostHtml.includes('NewsMediaOrganization'),
+    `llms=${llmsRes.status}`
+  );
+
   const failed = results.filter(r => !r.ok).length;
   console.log(`\nTotal failures: ${failed}`);
   process.exit(failed ? 1 : 0);

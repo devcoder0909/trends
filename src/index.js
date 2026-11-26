@@ -18,10 +18,29 @@ import {
   PER_PAGE, BACK_SCRIPT_HASH, slugify,
   homePage, categoryPage, searchPage, postPage, aboutPage, notFoundPage, gonePage, endedPage,
 } from './render.js';
-import { sitemapXml, newsSitemapXml, robotsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
+import { sitemapXml, newsSitemapXml, robotsTxt, llmsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
 import { FAVICON_SVG, generateOgPng } from './og.js';
 
-const MAX_TOPICS_PER_TICK = 4; // stays well below Cloudflare's 50 subrequest limit
+const MAX_TOPICS_PER_TICK = 3; // balanced throughput well below Cloudflare's 50-subrequest limit
+
+const timeoutSig = (ms = 7000) =>
+  (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+
+const createBudget = (max = 42) => {
+  let used = 0;
+  return {
+    spend(n = 1) { used += n; },
+    remaining() { return Math.max(0, max - used); },
+  };
+};
+
+async function purgeEdgePaths(siteHost, paths) {
+  const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
+  if (!edgeCache || !siteHost || !paths.length) return;
+  await Promise.allSettled(
+    [...new Set(paths)].map(p => edgeCache.delete(new Request(`https://${siteHost}${p}`, { method: 'GET' })))
+  );
+}
 
 const isoNow = () => new Date().toISOString();
 const todayStr = () => isoNow().slice(0, 10);
@@ -137,15 +156,16 @@ async function searchLivePosts(db, nowIso, rawQuery, catSlug = '') {
  * Append a short factual "Update" line for live posts (including extended posts)
  * when fresh headlines appear, update dateModified, and ping IndexNow once.
  */
-async function updateLiveTopics(db, env, settings, siteUrl, nowIso) {
-  if (settings.devMode) return;
+async function updateLiveTopics(db, env, settings, siteUrl, nowIso, budget) {
+  if (settings.devMode || budget.remaining() < 16) return [];
   const checkCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   const candidates = (await db.prepare(
-    "SELECT id, slug, topic, geo, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 2"
+    "SELECT id, slug, topic, geo, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 1"
   ).bind(nowIso, checkCutoff).all()).results || [];
 
   const updatedUrls = [];
   for (const post of candidates) {
+    budget.spend(1);
     const fresh = await fetchGoogleNews(post.topic, post.geo || 'US');
     let existingUrls = [];
     let existingUpdates = [];
@@ -172,10 +192,7 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso) {
     }
   }
 
-  if (updatedUrls.length) {
-    await pingIndexNow(env, updatedUrls);
-    await pingGoogleIndexing(env, updatedUrls, 'URL_UPDATED');
-  }
+  return updatedUrls;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -188,18 +205,25 @@ export async function handleScheduled(env) {
   const now = isoNow();
   const siteUrl = `https://${settings.siteHost}`;
   const isSiteEnded = Boolean(env.SITE_END_AT && new Date() > new Date(env.SITE_END_AT));
+  const budget = createBudget(42); // reserves 8+ subrequests below Cloudflare's 50 limit
 
   // 1. Evaluate tiered extensions BEFORE deleting expired posts
   const { extendedSlugs, deletedSlugs } = await processExpirationsAndExtensions(db, now, settings);
   if (extendedSlugs.length) {
     const extUrls = extendedSlugs.map(s => `${siteUrl}/p/${s}`);
-    await pingIndexNow(env, extUrls);
-    await pingGoogleIndexing(env, extUrls, 'URL_UPDATED');
+    budget.spend(Math.min(10, extUrls.length) + 2);
+    await Promise.allSettled([
+      pingIndexNow(env, extUrls),
+      pingGoogleIndexing(env, extUrls, 'URL_UPDATED'),
+    ]);
   }
   if (deletedSlugs.length) {
     const delUrls = deletedSlugs.map(s => `${siteUrl}/p/${s}`);
-    await pingIndexNow(env, delUrls);
-    await pingGoogleIndexing(env, delUrls, 'URL_DELETED');
+    budget.spend(Math.min(10, delUrls.length) + 2);
+    await Promise.allSettled([
+      pingIndexNow(env, delUrls),
+      pingGoogleIndexing(env, delUrls, 'URL_DELETED'),
+    ]);
   }
 
   // Full 7-day cleanup across dedup, timed-out holds, stale queue, and rejected log
@@ -225,39 +249,46 @@ export async function handleScheduled(env) {
   if (isSiteEnded) return;
 
   // 2. Check existing live posts (including extended posts) for new headlines
-  await updateLiveTopics(db, env, settings, siteUrl, now);
+  const updatedUrls = await updateLiveTopics(db, env, settings, siteUrl, now, budget);
 
   // 3. Count today's published posts & promote queued topics if under daily cap
   let count = (await db.prepare(
     "SELECT COUNT(*) as c FROM topics WHERE status = 'published' AND created_at LIKE ?"
   ).bind(todayStr() + '%').first())?.c || 0;
 
+  const promotedUrls = [];
   if (count < settings.maxDaily) {
     const queued = (await db.prepare(
       "SELECT id, slug FROM topics WHERE status = 'queued' ORDER BY created_at LIMIT ?"
     ).bind(settings.maxDaily - count).all()).results || [];
-    const promotedUrls = [];
     for (const q of queued) {
       await db.prepare("UPDATE topics SET status = 'published' WHERE id = ?").bind(q.id).run();
       promotedUrls.push(`${siteUrl}/p/${q.slug}`);
       count++;
     }
-    if (promotedUrls.length) {
-      await pingIndexNow(env, promotedUrls);
-      await pingGoogleIndexing(env, promotedUrls, 'URL_UPDATED');
-    }
   }
 
-  // 4. Fetch Trends RSS across configured geos and collect new candidates
+  // 4. Fetch Trends RSS — always fetch primary geo (US) + rotate 2 secondary geos per minute
+  let tickGeos = settings.geos;
+  if (!settings.devMode && settings.geos.length > 3) {
+    const primaryGeo = settings.geos[0];
+    const secondary = settings.geos.slice(1);
+    const rot = (Math.floor(Date.now() / 60_000) * 2) % secondary.length;
+    tickGeos = [primaryGeo, secondary[rot], secondary[(rot + 1) % secondary.length]];
+  }
+
   const rawCandidates = [];
-  for (const geo of settings.geos) {
+  for (const geo of tickGeos) {
     let xml = '';
     if (settings.devMode) {
       xml = MOCK_RSS;
     } else {
+      if (budget.remaining() <= 10) break;
+      budget.spend(1);
       try {
         const res = await fetch(`https://trends.google.com/trending/rss?geo=${geo}`, {
           headers: { 'User-Agent': 'TrendBot/1.0' },
+          signal: timeoutSig(7000),
         });
         if (!res.ok) continue;
         xml = await res.text();
@@ -300,6 +331,7 @@ export async function handleScheduled(env) {
   }
 
   const newUrls = [];
+  const touchedCats = new Set();
   let processedThisTick = 0;
 
   for (const item of ranked) {
@@ -323,9 +355,17 @@ export async function handleScheduled(env) {
       continue;
     }
 
+    // Backoff recent pending retries by 2 minutes so we don't spin on the same topic back-to-back
+    const pend = pendingMap.get(hash);
+    if (pend && pend.last_tried_at && Date.now() - Date.parse(pend.last_tried_at) < 90_000) {
+      continue;
+    }
+
     if (processedThisTick >= MAX_TOPICS_PER_TICK) break;
+    if (!settings.devMode && budget.remaining() <= 10) break; // reserve remaining subrequests strictly for indexing
     processedThisTick++;
 
+    if (!settings.devMode) budget.spend(1);
     const googleNewsItems = settings.devMode
       ? (MOCK_GOOGLE_NEWS[hash] || [])
       : await fetchGoogleNews(item.title, item.geo || 'US');
@@ -333,9 +373,9 @@ export async function handleScheduled(env) {
     const merged = mergeSources(item.newsItems, googleNewsItems);
 
     if (merged.distinctOutlets.length < 2) {
-      if (!pendingMap.has(hash)) {
+      if (!pend) {
         await db.prepare(
-          'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
         ).bind(hash, item.title, item.geo, item.approxTraffic || 0, JSON.stringify(item.newsItems || []), now, now).run();
       } else {
         await db.prepare('UPDATE pending_topics SET last_tried_at = ? WHERE topic_hash = ?').bind(now, hash).run();
@@ -347,14 +387,21 @@ export async function handleScheduled(env) {
       env,
       { topic: item.title, sources: merged.items },
       liveTitles,
-      { skipLlmVerifier: processedThisTick > 2 }
+      { skipLlmVerifier: true, budget }
     );
 
     if (!result.ok) {
+      const retries = (pend?.retry_count || 0) + 1;
       await logRejected(db, hash, item.title, item.geo, result.code, result.reason);
-      if (result.code !== 'infra_error') {
+      if (result.code === 'sensitive' || result.code === 'duplicate_topic' || (result.code === 'quality_gate' && retries >= 3)) {
         await markSeen(db, hash, hash, now);
         await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+      } else if (!pend) {
+        await db.prepare(
+          'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).bind(hash, item.title, item.geo, item.approxTraffic || 0, JSON.stringify(item.newsItems || []), now, now, retries).run();
+      } else {
+        await db.prepare('UPDATE pending_topics SET last_tried_at = ?, retry_count = ? WHERE topic_hash = ?').bind(now, retries, hash).run();
       }
       continue;
     }
@@ -389,16 +436,24 @@ export async function handleScheduled(env) {
       liveTitles.add(post.title.toLowerCase());
       liveRows.push({ title: post.title, topic: item.title });
       if (status === 'published') {
-        newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}/c/${slugify(post.category || 'News')}`, `${siteUrl}/`);
+        const catPath = `/c/${slugify(post.category || 'News')}`;
+        touchedCats.add(catPath);
+        newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
         count++;
       }
     } catch { /* duplicate slug — skip gracefully */ }
   }
 
-  if (newUrls.length) {
-    await pingIndexNow(env, newUrls);
-    await pingWebSub(env, siteUrl);
-    await pingGoogleIndexing(env, newUrls.filter(u => u.includes('/p/')), 'URL_UPDATED');
+  const postPings = [...new Set([...newUrls.filter(u => u.includes('/p/')), ...updatedUrls, ...promotedUrls])];
+  const indexNowBatch = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls])];
+
+  if (indexNowBatch.length) {
+    await Promise.allSettled([
+      pingIndexNow(env, indexNowBatch),
+      pingWebSub(env, siteUrl),
+      pingGoogleIndexing(env, postPings, 'URL_UPDATED'),
+      purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats]),
+    ]);
   }
 }
 
@@ -462,6 +517,7 @@ export async function handleFetch(request, env, ctx) {
     path === '/sitemap.xml' ||
     path === '/news-sitemap.xml' ||
     path === '/rss.xml' ||
+    path === '/llms.txt' ||
     path === '/og.png' ||
     path.startsWith('/og/') ||
     (path.startsWith('/c/') && !url.searchParams.has('page')) ||
@@ -521,6 +577,15 @@ export async function handleFetch(request, env, ctx) {
   if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await live(), siteUrl)));
   if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await live(), siteUrl, settings.siteName, nowMs)));
   if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await live(), siteUrl, settings.siteName)));
+  if (path === '/llms.txt') {
+    return cacheAndReturn(new Response(llmsTxt(await live(), siteUrl, settings.siteName), {
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+        'Cache-Control': 'public, s-maxage=60, max-age=30',
+        ...SECURITY_HEADERS,
+      },
+    }));
+  }
 
   // Home page (page 1) and paginated home (/page/2, /page/3, ...)
   const homePageMatch = path === '/' ? [null, '1'] : path.match(/^\/page\/(\d+)\/?$/);
