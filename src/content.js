@@ -164,7 +164,19 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
   }
 
   const validOutlets = sources.map(s => (s.source || '').toLowerCase()).filter(Boolean);
-  for (const fact of keyFacts) {
+  const normalizedFacts = keyFacts.map(fact => {
+    if (/\[[^\]]+\]/.test(fact)) return fact;
+    const paren = fact.match(/\(([^)]+)\)\s*\.?$/);
+    if (paren) {
+      const candidate = paren[1].trim().toLowerCase();
+      if (validOutlets.some(o => o.includes(candidate) || candidate.includes(o))) {
+        return fact.replace(/\(([^)]+)\)(\s*\.?)$/, '[$1]$2');
+      }
+    }
+    return fact;
+  });
+
+  for (const fact of normalizedFacts) {
     const bracket = fact.match(/\[([^\]]+)\]/);
     if (!bracket) return { ok: false, reason: 'key_facts bullet missing [Outlet] attribution' };
     const outletName = bracket[1].toLowerCase();
@@ -173,7 +185,7 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
     }
   }
 
-  const bodyText = [summary, whatHappened, whyTrending, ...keyFacts, whatNext].join(' ');
+  const bodyText = [summary, whatHappened, whyTrending, ...normalizedFacts, whatNext].join(' ');
   const totalWords = countWords(bodyText);
   if (totalWords < 150 || totalWords > 250) {
     return { ok: false, reason: `word count ${totalWords} out of range (150-250)` };
@@ -237,7 +249,7 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
       summary,
       what_happened: whatHappened,
       why_trending: whyTrending,
-      key_facts: keyFacts,
+      key_facts: normalizedFacts,
       what_to_know_next: whatNext,
       also_searched: groundedAlso,
     },
@@ -267,17 +279,18 @@ WRITING RULES:
 2. Do NOT mention being an AI. Do NOT use "shocking", "you won't believe", or "breaking" (unless "breaking" is in SOURCES).
 3. Define who or what "${topic}" is in the first sentence of what_happened (full name + role, or clarify which meaning applies).
 4. Use exact dates, times, and numbers from SOURCES. If details are unconfirmed or sources differ, write "reported but not confirmed".
-5. Target 170 to 215 words total across summary + what_happened + why_trending + key_facts + what_to_know_next (must stay strictly within 150-250 words).
+5. Target 185 to 225 words total across summary + what_happened + why_trending + key_facts + what_to_know_next (must stay strictly within 150-250 words).
+6. EVERY bullet in key_facts MUST end with the source outlet name inside square brackets, like: "Team A won 2-1 in London [ESPN]."
 
 OUTPUT ONLY VALID JSON (no markdown fences):
 {
   "title": "<STRICTLY under 58 chars, plain language, includes ${topic} and search intent>",
   "category": "${category}",
-  "summary": "<ONE single sentence, 18-28 words, directly answering what happened>",
-  "what_happened": "<2-3 short sentences (45-65 words) covering who, what, when, where>",
-  "why_trending": "<1-2 sentences (25-40 words) explaining why people are searching now>",
+  "summary": "<ONE single sentence, 20-28 words, directly answering what happened>",
+  "what_happened": "<2-3 short sentences (55-75 words) covering who, what, when, where>",
+  "why_trending": "<1-2 sentences (30-45 words) explaining why people are searching now>",
   "key_facts": ["<single verifiable fact [Outlet Name]>", "<fact 2 [Outlet Name]>", "<fact 3 [Outlet Name]>"],
-  "what_to_know_next": "<1-2 sentences (20-35 words) on upcoming date, next step, or what remains unconfirmed>",
+  "what_to_know_next": "<1-2 sentences (25-40 words) on upcoming date, next step, or what remains unconfirmed>",
   "also_searched": ["<related phrase 1 from sources>", "<related phrase 2>", "<related phrase 3>"]
 }`;
 }

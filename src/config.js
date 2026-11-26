@@ -47,7 +47,7 @@ export const isSensitive = text => findSensitiveMatch(text) !== null;
 
 // Category definitions ordered for informational intent classification
 export const CATEGORY_RULES = [
-  ['Sports', /\b(nba|nfl|mlb|nhl|fifa|uefa|premier league|champions league|world cup|olympics|playoffs|finals|match|stadium|goal|touchdown|quarterback|coach|tournament|championship|grand prix|ufc|tennis|cricket|golf|league)\b/gi],
+  ['Sports', /\b(nba|nfl|mlb|nhl|fifa|uefa|premier league|champions league|world cup|olympics|playoffs|finals|match|stadium|goal|touchdown|quarterback|running back|wide receiver|fumble|fumbles|coach|tournament|championship|grand prix|ufc|tennis|cricket|golf|league|football|basketball|baseball|soccer|hockey|bears|lions|chiefs|eagles|cowboys|lakers|celtics)\b/gi],
   ['Gaming', /\b(playstation|ps5|xbox|nintendo|switch|steam|video game|game release|dlc|esports|rpg|fps|minecraft|fortnite|gta|elden ring|zelda|pokemon|patch notes|60 fps)\b/gi],
   ['Tech', /\b(ai|artificial intelligence|apple|google|microsoft|meta|openai|nvidia|tesla|iphone|android|macbook|software|app|outage|down|server|chip|semiconductor|cybersecurity|ios|windows|pixel|chatgpt|gemini)\b/gi],
   ['Entertainment', /\b(movie|film|box office|trailer|netflix|disney|hbo|max|prime video|series|season|episode|album|song|concert|tour|singer|actor|actress|oscar|grammy|emmy|tv show|premiere|cast|sequel|directed|director|filming|sci-fi|chef|masterchef|kitchen|reality tv)\b/gi],
