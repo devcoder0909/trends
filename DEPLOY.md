@@ -1,13 +1,13 @@
 # Deploy Guide — Ephemeral Trend Site
 
 Zero-cost auto-publishing trend site on Cloudflare Workers.
-Publishes Google Trends summaries, auto-deletes after 48 hours.
+Publishes source-grounded Google Trends + Google News summaries. Posts expire after **48 hours** by default, or **7 days** if they receive organic search traffic within their first 48 hours.
 
 ---
 
 ## Prerequisites
 
-- **Node.js 18+** — [download](https://nodejs.org)
+- **Node.js 22+** (Node 24 recommended for local `node:sqlite` tests) — [download](https://nodejs.org)
 - **Cloudflare account** (free) — [sign up](https://dash.cloudflare.com/sign-up)
 - **Domain** pointed to Cloudflare DNS (optional — works on `*.workers.dev` too)
 
@@ -40,43 +40,62 @@ A browser window opens. Authorize Wrangler to access your account.
 npx wrangler d1 create trends-db
 ```
 
-The output shows something like:
-
-```
-database_id = "abc123-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-```
-
-**Copy that `database_id`** and paste it into `wrangler.toml`:
+Copy the `database_id` from the output and paste it into `wrangler.toml`:
 
 ```toml
 [[d1_databases]]
 binding = "DB"
 database_name = "trends-db"
-database_id = "abc123-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # ← your ID here
+database_id = "abc123-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
 ---
 
-## Step 4 · Initialize the Database Schema
+## Step 4 · Initialize (or Migrate) the Database Schema
+
+### Fresh installation
 
 ```bash
 npm run db:init
 ```
 
-This creates the `topics` and `seen_topics` tables in your remote D1 database.
+### Upgrading an existing database (keeps all existing data)
+
+If you already deployed an earlier version of `trends-db`, run the `ALTER TABLE` migrations instead of recreating the database:
+
+```bash
+# If upgrading from v1 (initial schema):
+npx wrangler d1 execute trends-db --remote --file=migrations/001_quality_upgrade.sql
+
+# Add tiered post lifetime columns (search_hits, extended, last_search_hit_at):
+npx wrangler d1 execute trends-db --remote --file=migrations/002_tiered_lifetime.sql
+```
+
+Or run the individual `ALTER TABLE` statements directly via CLI:
+
+```bash
+npx wrangler d1 execute trends-db --remote --command="ALTER TABLE topics ADD COLUMN search_hits INTEGER NOT NULL DEFAULT 0; ALTER TABLE topics ADD COLUMN extended INTEGER NOT NULL DEFAULT 0; ALTER TABLE topics ADD COLUMN last_search_hit_at TEXT;"
+```
+
+For local D1 testing, replace `--remote` with `--local`.
 
 ---
 
 ## Step 5 · Configure Environment Variables
 
-Edit `wrangler.toml` → `[vars]` section:
+Edit `wrangler.toml` → `[vars]`:
 
-| Variable | What to set | Example |
+| Variable | What to set | Default / Example |
 |---|---|---|
 | `SITE_HOST` | Your domain (no `https://`) | `trends.example.com` |
-| `CONTACT_EMAIL` | Your contact email | `you@example.com` |
-| `GEO_LIST` | Comma-separated country codes | `US,GB,IN` |
-| `INDEXNOW_KEY` | Random 32-char hex string (see below) | `a1b2c3d4e5f6...` |
+| `SITE_NAME` | Site & JSON-LD publisher name | `Trending Now` |
+| `CONTACT_EMAIL` | Your contact email (E-E-A-T footer & `/about`) | `you@example.com` |
+| `GEO_LIST` | Comma-separated country codes (`hreflang` activates when >1) | `US` or `US,GB,IN` |
+| `INDEXNOW_KEY` | Random 32-char hex string | `a1b2c3d4...` |
+| `BASE_TTL_HOURS` | Default post lifetime in hours | `48` |
+| `EXTENDED_TTL_HOURS` | Extended lifetime in hours (7 days = 168) | `168` |
+| `EXTEND_MIN_HITS` | Human search-engine visits in first 48h to trigger extension | `1` |
+| `SITE_END_AT` | Optional ISO timestamp to stop fetching new topics | `2026-12-01T00:00:00Z` |
 
 Generate your IndexNow key:
 
@@ -84,11 +103,9 @@ Generate your IndexNow key:
 node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
 ```
 
-Paste the output as `INDEXNOW_KEY` in `wrangler.toml`.
-
 ---
 
-## Step 6 · Set Gemini API Key (optional fallback)
+## Step 6 · Set Gemini API Key (free fallback)
 
 Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey), then:
 
@@ -96,7 +113,7 @@ Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey), 
 npx wrangler secret put GEMINI_API_KEY
 ```
 
-Paste your key when prompted. This is used only if Workers AI quota runs out.
+This is used automatically if Workers AI quota runs out.
 
 ---
 
@@ -104,7 +121,6 @@ Paste your key when prompted. This is used only if Workers AI quota runs out.
 
 ```bash
 npm run deploy
-# or: npx wrangler deploy
 ```
 
 Your site is live at `https://trends.YOUR-SUBDOMAIN.workers.dev`.
@@ -117,43 +133,37 @@ Your site is live at `https://trends.YOUR-SUBDOMAIN.workers.dev`.
 2. Click your `trends` worker → **Settings** → **Domains & Routes**
 3. Click **Add** → **Custom Domain**
 4. Enter your domain (e.g., `trends.example.com`)
-5. Cloudflare auto-configures DNS — wait for it to show "Active"
-
-> **Note:** Your domain must already be on Cloudflare DNS. If it isn't, add it
-> under **Websites** in the dashboard and update your registrar's nameservers.
+5. Cloudflare auto-configures DNS — wait for status **Active**
 
 ---
 
 ## Step 9 · Verify the Cron Trigger
 
 1. In the dashboard: **Workers & Pages** → `trends` → **Settings** → **Triggers**
-2. Under "Cron Triggers", confirm `* * * * *` is listed
-3. Wait 1-2 minutes, then visit your site — posts should start appearing
+2. Confirm `* * * * *` is active under **Cron Triggers**
+3. Wait 1–2 minutes and refresh `/` — high-traffic topics with at least 2 distinct outlets will publish automatically
+
+To review topics rejected by the sensitivity filter, single-source timeout, or quality gate:
+
+```bash
+npx wrangler d1 execute trends-db --remote --command="SELECT topic, reason, details, rejected_at FROM rejected ORDER BY rejected_at DESC LIMIT 25;"
+```
 
 ---
 
-## Step 10 · Set the Kill Switch
+## Step 10 · Kill Switch Behavior (`SITE_END_AT`)
 
-After your first deploy, set `SITE_END_AT` to 48 hours from now:
+When `SITE_END_AT` is set and the timestamp passes:
+
+1. **New fetching stops**: the cron job stops fetching Google Trends / Google News RSS and stops publishing new or queued topics.
+2. **Live & extended posts keep serving**: existing posts (including those extended to 7 days via search traction) stay live until their own `expires_at` passes, and continue expiring cleanly one by one.
+3. **Full 410 shutdown**: once all remaining posts pass their `expires_at`, every URL returns **HTTP 410 Gone** (`This site has ended`), while `/{INDEXNOW_KEY}.txt` remains readable so IndexNow can verify final removal pings.
+
+Generate a timestamp 48 hours from now:
 
 ```bash
 node -e "console.log(new Date(Date.now() + 48*3600*1000).toISOString())"
 ```
-
-Add the output to `wrangler.toml`:
-
-```toml
-[vars]
-SITE_END_AT = "2024-12-01T12:00:00.000Z"   # ← paste the timestamp
-```
-
-Then redeploy:
-
-```bash
-npm run deploy
-```
-
-After this time, the worker stops fetching trends and serves a "site ended" page.
 
 ---
 
@@ -162,97 +172,46 @@ After this time, the worker stops fetching trends and serves a "site ended" page
 ### Google Search Console
 
 1. Go to [Google Search Console](https://search.google.com/search-console)
-2. Add your property → choose **URL prefix** → enter `https://trends.example.com`
-3. Verify ownership (Cloudflare DNS method is easiest)
-4. Go to **Sitemaps** → submit:
-   - `https://trends.example.com/sitemap.xml`
-   - `https://trends.example.com/news-sitemap.xml`
+2. Add your property → **URL prefix** → `https://trends.example.com`
+3. Verify ownership via Cloudflare DNS
+4. Go to **Sitemaps** and submit:
+   - `https://trends.example.com/sitemap.xml` (all live posts, including 7-day extended posts)
+   - `https://trends.example.com/news-sitemap.xml` (last 48 hours only)
 
 ### Bing Webmaster Tools
 
 1. Go to [Bing Webmaster Tools](https://www.bing.com/webmasters)
 2. Add your site → verify via DNS
-3. Go to **Sitemaps** → submit:
-   - `https://trends.example.com/sitemap.xml`
-
-> IndexNow also auto-pings Bing, Yandex, and others every time a post is
-> published or removed — no manual submission needed after the initial setup.
+3. Submit `https://trends.example.com/sitemap.xml`
+4. IndexNow automatically notifies Bing and partner engines whenever posts are published, updated, extended, or deleted.
 
 ---
 
-## Local Testing
+## Local Testing & Verification
 
-### 1. Create `.dev.vars`
+### Automated Pipeline & Lifetime Tests
+
+```bash
+npm run test:content     # Runs 10 mock topics + quality gate checks (PASS / REJECT)
+npm run test:lifetime    # Simulates 0-hit 48h expiry, 3-hit 7-day extension, bot filter, and SITE_END_AT
+```
+
+### Local Dev Server
 
 ```bash
 copy .dev.vars.example .dev.vars
-```
-
-Edit `.dev.vars` and set `DEV_MODE=true`. Optionally add your Gemini key.
-
-### 2. Initialize Local Database
-
-```bash
 npm run db:init:local
-```
-
-### 3. Run the Dev Server
-
-```bash
 npm run dev
 ```
 
-Visit [http://localhost:8787](http://localhost:8787).
-
-### 4. Trigger the Cron Manually
-
-In a separate terminal:
+Trigger a local cron tick in another terminal:
 
 ```bash
 curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
 ```
 
-This simulates a cron tick. Refresh the page to see mock posts appear.
-
-In dev mode:
-- RSS data comes from a built-in mock feed (3 sample topics)
-- Content is generated from templates (no LLM calls)
-- IndexNow pings are skipped
-
----
-
-## Supported Endpoints
-
-| Path | Description |
-|---|---|
-| `/` | Home page — all live posts, newest first |
-| `/p/{slug}` | Individual post with related trends |
-| `/about` | Disclosure and contact info |
-| `/sitemap.xml` | XML sitemap of live posts |
-| `/news-sitemap.xml` | Google News sitemap |
-| `/robots.txt` | Crawl directives + sitemap locations |
-| `/rss.xml` | RSS 2.0 feed |
-| `/{INDEXNOW_KEY}.txt` | IndexNow verification file |
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| No posts appearing | Check cron trigger is set. Try `curl localhost:8787/__scheduled` locally. |
-| "AI unavailable" errors | Workers AI free quota may be exhausted. Set `GEMINI_API_KEY` as fallback. |
-| Posts not being indexed | Verify IndexNow key file at `/{key}.txt`. Check sitemap in Search Console. |
-| Domain not connecting | Ensure domain is on Cloudflare DNS and custom domain is "Active" in dashboard. |
-| Want to change countries | Update `GEO_LIST` in `wrangler.toml` and redeploy. |
-
 ---
 
 ## Cost
 
-**\$0.** Everything runs on Cloudflare's free tier:
-- Workers: 100,000 requests/day
-- D1: 5 million rows read, 100K writes/day
-- Workers AI: free-tier models
-- Cron: included
-- IndexNow: free, no signup
+**\$0.** Runs entirely within Cloudflare's free tier (Workers, Cron, D1, Workers AI) with Gemini free API fallback and IndexNow.

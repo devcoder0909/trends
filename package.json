@@ -2,11 +2,16 @@
   "name": "trends",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute trends-db --remote --file=schema.sql",
-    "db:init:local": "wrangler d1 execute trends-db --local --file=schema.sql"
+    "db:init:local": "wrangler d1 execute trends-db --local --file=schema.sql",
+    "db:migrate:001": "wrangler d1 execute trends-db --remote --file=migrations/001_quality_upgrade.sql",
+    "db:migrate:002": "wrangler d1 execute trends-db --remote --file=migrations/002_tiered_lifetime.sql",
+    "test:content": "node test/test-content.js",
+    "test:lifetime": "node test/test-lifetime.js"
   },
   "devDependencies": {
     "wrangler": "^3"
