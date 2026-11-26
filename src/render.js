@@ -30,8 +30,8 @@ export const slugify = s =>
     .replace(/^-|-$/g, '')
     .slice(0, 80);
 
-// Inline CSS (< 1.5KB) — Google News dark theme (#202124 / #292a2d / #8ab4f8 / #81c995)
-export const CSS = `*{margin:0;padding:0}body{font:14px/1.4 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}.k{color:#81c995}p,ul{color:#bdc1c6}p,ul,h1,h2,img{margin:0 0 5px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}header{border-bottom:1px solid #3c4043}.w{max-width:840px;margin:auto;padding:8px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 20em;padding:2px 2px 2px 8px}button{font:inherit}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#8ab4f8}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:5px 9px;background:#303134;border-radius:9em}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:9px;margin:8px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:12px}.g{grid-template-columns:1fr 1fr}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 11px}h1{font-size:21px}}`;
+// Inline CSS (< 1.5KB) — Modern dark SaaS editorial theme (#111 / #181a1f / #3c9 emerald / #eef)
+export const CSS = `*{margin:0;padding:0}body{font:14px/1.45 system-ui;background:#111}body,.b,.sum,.bt,input{color:#eef}.m,.t a,footer a{color:#89a}a,.b b,.t .on,.k,h2 a:hover{color:#3c9}h2 a{color:#eef}p,ul{color:#bcc}p,ul,h1,h2,img{margin:0 0 7px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px;margin-top:8px}ul{padding-left:16px}header{border-bottom:1px solid #234}.w{max-width:860px;margin:auto;padding:9px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:7px}.b{margin-right:auto}.qf{flex:1 1 15em;padding:2px 2px 2px 8px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto;scrollbar-width:none}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#3c9}.m{font-size:12px}.pg{justify-content:center}.bt{font:inherit;padding:4px 9px;background:#223;border-radius:6px}.bt,.c{border:1px solid #234}.bt.on{background:#2b8;color:#021;border:0}.c{background:#181a1f;padding:11px;margin:9px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #3c9;padding-left:9px}.u{border-color:#eb3}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:14px}.g{grid-template-columns:1fr 1fr}.d{border-left:1px solid #234;padding-left:13px;display:flex;flex-flow:column}.d .j{margin-top:auto}h1{font-size:22px}}`;
 
 export const BACK_SCRIPT = `document.querySelectorAll('[data-bk]').forEach(function(a){a.addEventListener('click',function(e){try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){e.preventDefault();history.back()}}catch(x){}})})`;
 export const BACK_SCRIPT_HASH = 'sha256-gYnBAx/IGgY222gaMwV06vj32azHtsaxP2c3Mm8K7EY=';
@@ -119,7 +119,7 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
   const imgUrl = ogImage || (canon ? `${new URL(canon).origin}/og.png` : '/og.png');
   const ogUrl = canon ? `<meta property="og:url" content="${canon}">` : '';
   const preconnect = '<link rel="preconnect" href="https://news.google.com"><link rel="dns-prefetch" href="https://news.google.com">';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
 function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
@@ -255,7 +255,7 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
   if (alsoMatches.length) {
     right += `<p class="m"><strong>Related:</strong> ${alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ')}</p>`;
   }
-  right += `<div class="f j"><a class="k m" href="/c/${esc(catSlug)}">All ${esc(cat)} &rarr;</a><a class="bt" href="/p/${esc(p.slug)}">Full briefing &rarr;</a></div>`;
+  right += `<div class="f j"><a class="k m" href="/c/${esc(catSlug)}">${esc(cat)} hub &rarr;</a><a class="bt" href="/p/${esc(p.slug)}">Read briefing &rarr;</a></div>`;
 
   return `<article class="c" id="${esc(p.slug)}"><div class="r"><div>${left}</div><div class="d">${right}</div></div></article>`;
 }
@@ -281,7 +281,7 @@ function renderPostBody(post, livePosts, nowMs) {
   let rightLead = summary ? `<p class="sum">${esc(summary)}</p>` : '';
   if (latestUpdateText) rightLead += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdateText)}</p>`;
   if (post.sources) rightLead += `<p class="m"><strong>Sources:</strong> ${esc(post.sources)}</p>`;
-  rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key facts</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">All ${esc(cat)}</a></div>`;
+  rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key facts</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a></div>`;
 
   let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async" fetchpriority="high">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
   if (whatHappened) h += `<section><h2>What Happened</h2><p>${esc(whatHappened)}</p></section>`;
@@ -298,14 +298,16 @@ function renderPostBody(post, livePosts, nowMs) {
     .filter(p => p && !matchedPhrases.has(String(p).toLowerCase()))
     .slice(0, alsoMatches.length ? 2 : 3);
 
-  h += `<div class="f" style="margin:8px 0"><span class="m">Explore ${esc(cat)}:</span><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} Hub</a>`;
-  for (const m of alsoMatches) {
-    h += `<a class="bt" href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`;
+  if (alsoMatches.length || searchSuggestions.length) {
+    h += '<div class="f" style="margin:8px 0"><span class="m">Related:</span>';
+    for (const m of alsoMatches) {
+      h += `<a class="bt" href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`;
+    }
+    for (const q of searchSuggestions) {
+      h += `<a class="bt" href="/search?q=${encodeURIComponent(q)}" rel="nofollow">${esc(q)}</a>`;
+    }
+    h += '</div>';
   }
-  for (const q of searchSuggestions) {
-    h += `<a class="bt" href="/search?q=${encodeURIComponent(q)}" rel="nofollow">${esc(q)}</a>`;
-  }
-  h += '</div>';
   h += `<section id="sources">${renderSourcesList(post, true)}</section>`;
   return h;
 }
@@ -611,7 +613,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   h += `</article>`;
 
   if (related.length) {
-    h += `<nav class="c" aria-label="Related briefings"><div class="f j"><p class="m"><strong>More in ${esc(cat)}</strong></p><a class="m" href="/c/${esc(catSlug)}">Browse all ${esc(cat)} &rarr;</a></div><div class="r g">`;
+    h += `<nav class="c" aria-label="Related briefings"><div class="f j"><p class="m"><strong>More in ${esc(cat)}</strong></p><a class="m" href="/c/${esc(catSlug)}">${esc(cat)} hub &rarr;</a></div><div class="r g">`;
     for (const r of related) {
       const rCat = r.category || 'News';
       const prefix = rCat === cat ? '' : `<a class="k" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · `;
@@ -619,7 +621,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     }
     h += '</div></nav>';
   }
-  h += `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/c/${esc(catSlug)}">More ${esc(cat)}</a><a class="bt" href="/">Top stories</a></div></main>` + htmlFoot(settings.contactEmail);
+  h += `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a><a class="bt" href="/">Top stories</a></div></main>` + htmlFoot(settings.contactEmail);
   return h;
 }
 
