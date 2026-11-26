@@ -337,15 +337,21 @@ async function run() {
   const llmsText = await llmsRes.text();
   const uiSitemap = await (await handleFetch(new Request('https://trends.example.com/sitemap.xml'), uiEnv, ctx)).text();
   const uiRss = await (await handleFetch(new Request('https://trends.example.com/rss.xml'), uiEnv, ctx)).text();
+  const wwwHttps = await handleFetch(new Request('https://www.trends.example.com/p/topic-15?ref=1'), uiEnv, ctx);
+  const wwwHttp = await handleFetch(new Request('http://www.trends.example.com/robots.txt'), uiEnv, ctx);
   record(
-    'robots.txt AI bots, /llms.txt, own-domain /i/*.jpg sitemap/RSS & NewsMediaOrganization schema',
+    'robots.txt AI bots, /llms.txt, own-domain /i/*.jpg sitemap/RSS, NewsMediaOrganization & www->apex 301',
     robotsText.includes('Googlebot-Image') && robotsText.includes('OAI-SearchBot') &&
     robotsText.includes('Claude-SearchBot') && robotsText.includes('PerplexityBot') &&
     llmsRes.status === 200 && llmsText.includes('# Trending Now') && llmsText.includes('/p/topic-15') &&
     uiSitemap.includes('xmlns:image=') && uiSitemap.includes('<image:loc>https://trends.example.com/i/topic-15.jpg</image:loc>') &&
     uiRss.includes('<content:encoded>') && uiRss.includes('https://trends.example.com/i/topic-15.jpg') &&
-    imgPostHtml.includes('NewsMediaOrganization'),
-    `llms=${llmsRes.status}`
+    imgPostHtml.includes('NewsMediaOrganization') &&
+    cspHeader.includes("object-src 'none'") &&
+    wwwHttps.status === 301 && wwwHttps.headers.get('location') === 'https://trends.example.com/p/topic-15?ref=1' &&
+    wwwHttp.status === 301 && wwwHttp.headers.get('location') === 'https://trends.example.com/robots.txt' &&
+    Boolean(wwwHttps.headers.get('strict-transport-security')),
+    `llms=${llmsRes.status}, www301=${wwwHttps.status}/${wwwHttp.status}`
   );
 
   const failed = results.filter(r => !r.ok).length;

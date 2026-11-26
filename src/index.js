@@ -47,7 +47,7 @@ const todayStr = () => isoNow().slice(0, 10);
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': `default-src 'self' https://*.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://news.google.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://www.gstatic.com data:; script-src 'self' '${BACK_SCRIPT_HASH}' '${SWG_SCRIPT_HASH}' https://news.google.com https://*.google.com https://www.gstatic.com; img-src 'self' https: data:; frame-src https://news.google.com https://*.google.com; connect-src 'self' https://news.google.com https://*.google.com https://www.gstatic.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
+  'Content-Security-Policy': `default-src 'self' https://*.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://news.google.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://www.gstatic.com data:; script-src 'self' '${BACK_SCRIPT_HASH}' '${SWG_SCRIPT_HASH}' https://news.google.com https://*.google.com https://www.gstatic.com; img-src 'self' https: data:; object-src 'none'; frame-src https://news.google.com https://*.google.com; connect-src 'self' https://news.google.com https://*.google.com https://www.gstatic.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -461,16 +461,26 @@ export async function handleScheduled(env) {
 //  FETCH HANDLER — routes all HTTP requests
 // ══════════════════════════════════════════════════════════════
 
+const redirect301 = dest =>
+  new Response(null, { status: 301, headers: { Location: dest, 'Cache-Control': 'public, max-age=3600', ...SECURITY_HEADERS } });
+
 export async function handleFetch(request, env, ctx) {
   const settings = getSettings(env);
   const url = new URL(request.url);
+  const hostNorm = normalizeHost(env.SITE_HOST) || url.host;
+  const canonicalHost = hostNorm.split(':')[0].toLowerCase();
+  const reqHost = url.hostname.toLowerCase();
 
-  // Enforce HTTPS redirect on live custom domains
-  if (url.protocol === 'http:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
-    return Response.redirect(`https://${url.host}${url.pathname}${url.search}`, 301);
+  // Enforce single-hop 301 canonical apex host (www -> apex) + HTTPS redirect on custom domains
+  if (reqHost !== 'localhost' && reqHost !== '127.0.0.1') {
+    if (env.SITE_HOST && !canonicalHost.startsWith('www.') && reqHost === `www.${canonicalHost}`) {
+      return redirect301(`https://${hostNorm}${url.pathname}${url.search}`);
+    }
+    if (url.protocol === 'http:') {
+      return redirect301(`https://${url.host}${url.pathname}${url.search}`);
+    }
   }
 
-  const hostNorm = normalizeHost(env.SITE_HOST) || url.host;
   const siteUrl = `https://${hostNorm}`;
   const path = url.pathname;
   const db = env.DB;
