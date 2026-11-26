@@ -1,6 +1,9 @@
 /**
- * SEO endpoints: XML Sitemap, 48h Google News Sitemap, robots.txt, RSS 2.0, and IndexNow.
+ * SEO endpoints: XML Sitemap (posts + category hubs), 48h Google News Sitemap,
+ * robots.txt, RSS 2.0, and IndexNow.
  */
+
+import { slugify } from './render.js';
 
 const esc = s => String(s || '')
   .replace(/&/g, '&amp;')
@@ -10,8 +13,23 @@ const esc = s => String(s || '')
 
 export function sitemapXml(posts, siteUrl) {
   let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
-  x += `<url><loc>${siteUrl}/</loc><changefreq>always</changefreq><priority>1.0</priority></url>`;
+  const latestMod = posts[0] ? (posts[0].updated_at || posts[0].created_at) : '';
+  x += `<url><loc>${siteUrl}/</loc>${latestMod ? `<lastmod>${esc(latestMod)}</lastmod>` : ''}<changefreq>always</changefreq><priority>1.0</priority></url>`;
   x += `<url><loc>${siteUrl}/about</loc><priority>0.3</priority></url>`;
+
+  // Include active category hubs with accurate lastmod
+  const catLatest = new Map();
+  for (const p of posts) {
+    const cSlug = slugify(p.category || 'News');
+    const mod = p.updated_at || p.created_at;
+    if (!catLatest.has(cSlug) || mod > catLatest.get(cSlug)) {
+      catLatest.set(cSlug, mod);
+    }
+  }
+  for (const [cSlug, mod] of catLatest) {
+    x += `<url><loc>${siteUrl}/c/${esc(cSlug)}</loc><lastmod>${esc(mod)}</lastmod><changefreq>hourly</changefreq><priority>0.7</priority></url>`;
+  }
+
   for (const p of posts) {
     const lastmod = p.updated_at || p.created_at;
     const priority = p.extended ? '0.9' : '0.8';
@@ -28,7 +46,10 @@ export function newsSitemapXml(posts, siteUrl, siteName = 'Trending Now', nowMs 
   let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">';
   for (const p of posts) {
     if (Date.parse(p.created_at) < cutoffMs) continue;
-    x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><news:news><news:publication><news:name>${esc(siteName)}</news:name><news:language>en</news:language></news:publication><news:publication_date>${esc(p.created_at)}</news:publication_date><news:title>${esc(p.title)}</news:title></news:news></url>`;
+    let kw = [p.category || 'News'];
+    try { kw = [...kw, ...(JSON.parse(p.also_searched || '[]') || [])]; } catch {}
+    const kwStr = [...new Set(kw)].filter(Boolean).slice(0, 5).join(', ');
+    x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><news:news><news:publication><news:name>${esc(siteName)}</news:name><news:language>en</news:language></news:publication><news:publication_date>${esc(p.created_at)}</news:publication_date><news:title>${esc(p.title)}</news:title>${kwStr ? `<news:keywords>${esc(kwStr)}</news:keywords>` : ''}</news:news></url>`;
   }
   return x + '</urlset>';
 }

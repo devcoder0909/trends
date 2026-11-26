@@ -5,19 +5,26 @@
  * - Fetches Google Trends RSS + Google News RSS every minute via cron
  * - Grounds every post in >= 2 distinct news outlets, validates & fact-checks
  * - Tiered lifetime: 48h base, extended to 7 days on search-engine human traffic
- * - Auto-deletes expired content, returns 410 Gone, pings IndexNow
- * - Zero client JS, inline CSS (<1.5KB), no images, no analytics
+ * - Full 7-day cleanup across topics, seen_topics, and rejected tables
+ * - Programmatic SEO: BreadcrumbList, NewsArticle, ItemList, category hubs, IndexNow
  */
 
-import { getSettings, isSensitive, normalizeHost } from './config.js';
+import { getSettings, isSensitive, normalizeHost, PREFERRED_CATEGORIES } from './config.js';
 import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics } from './rss.js';
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
-import { slugify, homePage, postPage, aboutPage, gonePage, endedPage } from './render.js';
+import { slugify, homePage, categoryPage, postPage, aboutPage, gonePage, endedPage } from './render.js';
 import { sitemapXml, newsSitemapXml, robotsTxt, rssFeed, pingIndexNow } from './seo.js';
+
+const MAX_TOPICS_PER_TICK = 4; // stays well below Cloudflare's 50 subrequest limit
 
 const isoNow = () => new Date().toISOString();
 const todayStr = () => isoNow().slice(0, 10);
+
+const SEO_INDEX_HEADERS = {
+  'Cache-Control': 'public, s-maxage=60, max-age=30, stale-while-revalidate=300',
+  'X-Robots-Tag': 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1',
+};
 
 const htmlRes = (body, status = 200, extra = {}) =>
   new Response(body, { status, headers: { 'Content-Type': 'text/html;charset=utf-8', ...extra } });
@@ -39,6 +46,31 @@ async function markSeen(db, hash, slug, nowIso) {
 }
 
 /**
+ * Prevent near-duplicate posts (e.g. "nba games" vs "nba games today").
+ */
+export function isNearDuplicateTopic(candidateTopic, liveTopics = []) {
+  const tokenize = s =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/['’]/g, '')
+      .split(/[^a-z0-9]+/)
+      .filter(w => w.length > 2 && !['the', 'and', 'for', 'with', 'what', 'why', 'how', 'today', 'latest', 'news'].includes(w));
+
+  const candWords = tokenize(candidateTopic);
+  if (!candWords.length) return false;
+
+  for (const row of liveTopics) {
+    const existingWords = new Set(tokenize(row.topic || row.title));
+    if (!existingWords.size) continue;
+    const overlap = candWords.filter(w => existingWords.has(w)).length;
+    const ratio = overlap / Math.min(candWords.length, existingWords.size);
+    if (overlap >= 2 && ratio >= 0.75) return true;
+    if (candWords.length === 1 && existingWords.size === 1 && overlap === 1) return true;
+  }
+  return false;
+}
+
+/**
  * Append a short factual "Update" line for live posts (including extended posts)
  * when fresh headlines appear, update dateModified, and ping IndexNow once.
  */
@@ -46,7 +78,7 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso) {
   if (settings.devMode) return;
   const checkCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   const candidates = (await db.prepare(
-    "SELECT id, slug, topic, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 5"
+    "SELECT id, slug, topic, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 2"
   ).bind(nowIso, checkCutoff).all()).results || [];
 
   const updatedUrls = [];
@@ -93,15 +125,11 @@ export async function handleScheduled(env) {
 
   // 1. Evaluate tiered extensions BEFORE deleting expired posts
   const { extendedSlugs, deletedSlugs } = await processExpirationsAndExtensions(db, now, settings);
-  if (extendedSlugs.length) {
-    await pingIndexNow(env, extendedSlugs.map(s => `${siteUrl}/p/${s}`));
-  }
-  if (deletedSlugs.length) {
-    await pingIndexNow(env, deletedSlugs.map(s => `${siteUrl}/p/${s}`));
-  }
+  if (extendedSlugs.length) await pingIndexNow(env, extendedSlugs.map(s => `${siteUrl}/p/${s}`));
+  if (deletedSlugs.length) await pingIndexNow(env, deletedSlugs.map(s => `${siteUrl}/p/${s}`));
 
-  // Clean up stale dedup memory, timed-out held topics, and stale queue entries
-  const seenCutoff = new Date(Date.now() - settings.seenTtlDays * 86400_000).toISOString();
+  // Full 7-day cleanup across dedup, timed-out holds, stale queue, and rejected log
+  const sevenDaysAgo = new Date(Date.now() - settings.seenTtlDays * 86400_000).toISOString();
   const holdCutoff = new Date(Date.now() - settings.holdMaxMinutes * 60_000).toISOString();
   const queueCutoff = new Date(Date.now() - 12 * 3600_000).toISOString();
 
@@ -114,12 +142,12 @@ export async function handleScheduled(env) {
   }
 
   await db.batch([
-    db.prepare('DELETE FROM seen_topics WHERE seen_at < ?').bind(seenCutoff),
+    db.prepare('DELETE FROM seen_topics WHERE seen_at < ?').bind(sevenDaysAgo),
+    db.prepare('DELETE FROM rejected WHERE rejected_at < ?').bind(sevenDaysAgo),
     db.prepare('DELETE FROM pending_topics WHERE first_seen_at < ?').bind(holdCutoff),
     db.prepare("DELETE FROM topics WHERE status = 'queued' AND created_at < ?").bind(queueCutoff),
   ]);
 
-  // Kill switch: stop fetching new topics after SITE_END_AT; live posts remain until their own expires_at
   if (isSiteEnded) return;
 
   // 2. Check existing live posts (including extended posts) for new headlines
@@ -165,7 +193,6 @@ export async function handleScheduled(env) {
     }
   }
 
-  // Include held pending topics for retry
   const pendingRows = (await db.prepare('SELECT * FROM pending_topics').all()).results || [];
   const pendingMap = new Map(pendingRows.map(r => [r.topic_hash, r]));
   for (const p of pendingRows) {
@@ -176,26 +203,29 @@ export async function handleScheduled(env) {
     }
   }
 
-  // Rank candidates by approx_traffic, source count, and informational category
   const ranked = rankTopics(rawCandidates);
 
-  // Track existing live titles to prevent duplicates
-  const liveTitles = new Set(
-    ((await db.prepare("SELECT title FROM topics WHERE status = 'published' AND expires_at > ?").bind(now).all()).results || [])
-      .map(r => r.title.toLowerCase())
-  );
+  const liveRows = (await db.prepare(
+    "SELECT title, topic FROM topics WHERE status = 'published' AND expires_at > ?"
+  ).bind(now).all()).results || [];
+  const liveTitles = new Set(liveRows.map(r => r.title.toLowerCase()));
 
   const newUrls = [];
-  let gnewsLookups = 0;
+  let processedThisTick = 0;
 
   for (const item of ranked) {
     const hash = slugify(item.title);
     if (!hash) continue;
 
-    // Skip already processed topics
     if (await db.prepare('SELECT 1 FROM seen_topics WHERE topic_hash = ?').bind(hash).first()) continue;
 
-    // Early sensitive filter before external fetch
+    if (isNearDuplicateTopic(item.title, liveRows)) {
+      await logRejected(db, hash, item.title, item.geo, 'duplicate_topic', 'Near-duplicate of live post');
+      await markSeen(db, hash, hash, now);
+      await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+      continue;
+    }
+
     const earlyText = [item.title, ...(item.newsItems || []).map(n => `${n.title} ${n.snippet}`)].join(' ');
     if (isSensitive(earlyText)) {
       await logRejected(db, hash, item.title, item.geo, 'sensitive', 'Matched blocklist in Trends RSS');
@@ -204,9 +234,8 @@ export async function handleScheduled(env) {
       continue;
     }
 
-    // Cap Google News RSS subrequests per cron run (stays well under 50 subrequest limit)
-    if (gnewsLookups >= 12) break;
-    gnewsLookups++;
+    if (processedThisTick >= MAX_TOPICS_PER_TICK) break;
+    processedThisTick++;
 
     const googleNewsItems = settings.devMode
       ? (MOCK_GOOGLE_NEWS[hash] || [])
@@ -214,7 +243,6 @@ export async function handleScheduled(env) {
 
     const merged = mergeSources(item.newsItems, googleNewsItems);
 
-    // Hold for up to 30 min if fewer than 2 distinct outlets
     if (merged.distinctOutlets.length < 2) {
       if (!pendingMap.has(hash)) {
         await db.prepare(
@@ -226,17 +254,21 @@ export async function handleScheduled(env) {
       continue;
     }
 
-    // Run writer + quality gate + fact-check verifier (max 2 retries)
+    // Skip second LLM verifier pass on last topic if near subrequest ceiling to ensure safe execution
     const result = await generateAndValidatePost(
       env,
       { topic: item.title, sources: merged.items },
-      liveTitles
+      liveTitles,
+      { skipLlmVerifier: processedThisTick > 2 }
     );
 
     if (!result.ok) {
       await logRejected(db, hash, item.title, item.geo, result.code, result.reason);
-      await markSeen(db, hash, hash, now);
-      await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+      // Do NOT blacklist on transient infra errors so it retries on the next cron tick
+      if (result.code !== 'infra_error') {
+        await markSeen(db, hash, hash, now);
+        await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+      }
       continue;
     }
 
@@ -267,6 +299,7 @@ export async function handleScheduled(env) {
       ]);
 
       liveTitles.add(post.title.toLowerCase());
+      liveRows.push({ title: post.title, topic: item.title });
       if (status === 'published') {
         newUrls.push(`${siteUrl}/p/${hash}`);
         count++;
@@ -290,7 +323,6 @@ export async function handleFetch(request, env, ctx) {
   const now = isoNow();
   const nowMs = Date.parse(now);
 
-  // Keep IndexNow key verifiable even after SITE_END_AT
   if (path === `/${env.INDEXNOW_KEY || '_'}.txt`) return textRes(env.INDEXNOW_KEY || '');
 
   const isSiteEnded = Boolean(env.SITE_END_AT && nowMs > Date.parse(env.SITE_END_AT));
@@ -298,13 +330,11 @@ export async function handleFetch(request, env, ctx) {
     const liveCount = (await db.prepare(
       "SELECT COUNT(*) as c FROM topics WHERE status = 'published' AND expires_at > ?"
     ).bind(now).first())?.c || 0;
-    if (liveCount === 0) {
-      return htmlRes(endedPage(), 410);
-    }
+    if (liveCount === 0) return htmlRes(endedPage(), 410, { 'X-Robots-Tag': 'noindex' });
   }
 
   if (path === '/robots.txt') return textRes(robotsTxt(siteUrl));
-  if (path === '/about') return htmlRes(aboutPage(settings, siteUrl));
+  if (path === '/about') return htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS);
 
   const live = async () => (await db.prepare(
     "SELECT * FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC"
@@ -319,9 +349,22 @@ export async function handleFetch(request, env, ctx) {
     if (shouldCountSearchHit(request) && ctx?.waitUntil) {
       ctx.waitUntil(recordSearchHit(db, null, now));
     }
-    return htmlRes(homePage(await live(), settings, siteUrl, nowMs), 200, {
-      'Cache-Control': 'public, s-maxage=60, max-age=30',
-    });
+    return htmlRes(homePage(await live(), settings, siteUrl, nowMs), 200, SEO_INDEX_HEADERS);
+  }
+
+  // Category hub pages (/c/{category}) for clean BreadcrumbList & hub-and-spoke SEO
+  if (path.startsWith('/c/')) {
+    const catSlug = path.slice(3).replace(/\/+$/, '').toLowerCase();
+    const knownNames = [...PREFERRED_CATEGORIES, 'News'];
+    const catName = knownNames.find(c => slugify(c) === catSlug);
+    if (!catName) return new Response('Not Found', { status: 404 });
+
+    const allLive = await live();
+    const filtered = allLive.filter(p => slugify(p.category || 'News') === catSlug);
+    const headers = filtered.length
+      ? SEO_INDEX_HEADERS
+      : { 'Cache-Control': 'public, s-maxage=60, max-age=30', 'X-Robots-Tag': 'noindex, follow' };
+    return htmlRes(categoryPage(catName, filtered, settings, siteUrl, nowMs), 200, headers);
   }
 
   // Individual post page
@@ -341,13 +384,11 @@ export async function handleFetch(request, env, ctx) {
       const diffCat = others.filter(p => (p.category || 'News') !== (post.category || 'News'));
       const related = [...sameCat, ...diffCat].slice(0, 6);
 
-      return htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, {
-        'Cache-Control': 'public, s-maxage=60, max-age=30',
-      });
+      return htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, SEO_INDEX_HEADERS);
     }
 
     const wasSeen = await db.prepare('SELECT 1 FROM seen_topics WHERE slug = ?').bind(slug).first();
-    return htmlRes(gonePage(), (wasSeen || isSiteEnded) ? 410 : 404);
+    return htmlRes(gonePage(), (wasSeen || isSiteEnded) ? 410 : 404, { 'X-Robots-Tag': 'noindex, follow' });
   }
 
   return new Response('Not Found', { status: 404 });

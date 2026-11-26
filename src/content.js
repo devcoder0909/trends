@@ -1,11 +1,28 @@
 /**
- * LLM content generation, strict JSON parsing, grounding verification,
- * quality gate (max 2 retries), and post-level update generation.
+ * LLM content generation, multi-model fallback (Workers AI -> Gemini),
+ * strict JSON parsing, grounding verification, and post-level updates.
  */
 
 import { BANNED_PHRASES, classifyCategory, isSensitive, findSensitiveMatch } from './config.js';
 
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+
+const WORKERS_AI_MODELS = [
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/meta/llama-4-scout-17b-16e-instruct',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/google/gemma-4-26b-a4b-it',
+];
+
+const GEMINI_FALLBACK_MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+];
+
+// Cached per Worker isolate to avoid wasting subrequests rediscovering working models
+let cachedAiModel = null;
+let cachedGeminiModel = null;
 
 const MONTH_NAMES = [
   ['jan', 'january'], ['feb', 'february'], ['mar', 'march'], ['apr', 'april'],
@@ -23,6 +40,21 @@ const COMMON_ACRONYMS = new Set([
   'NHL', 'FIFA', 'UEFA', 'UFC', 'F1',
 ]);
 
+const SKIP_PROPER_WORDS = new Set([
+  'the', 'this', 'that', 'these', 'those', 'their', 'there', 'here', 'what',
+  'when', 'where', 'why', 'how', 'who', 'while', 'which', 'after', 'before',
+  'during', 'reported', 'confirmed', 'unconfirmed', 'according', 'officials',
+  'experts', 'analysts', 'residents', 'investors', 'viewers', 'fans', 'players',
+  'users', 'customers', 'readers', 'search', 'trends', 'american', 'british',
+  'canadian', 'european', 'australian', 'english', 'spanish', 'global',
+  'national', 'federal', 'united', 'states', 'black', 'friday', 'cyber',
+  'thanksgiving', 'christmas', 'easter', 'monday', 'tuesday', 'wednesday',
+  'thursday', 'friday', 'saturday', 'sunday', 'january', 'february', 'march',
+  'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november',
+  'december', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept',
+  'oct', 'nov', 'dec', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun',
+]);
+
 export const countWords = text =>
   String(text || '').trim().split(/\s+/).filter(Boolean).length;
 
@@ -32,6 +64,26 @@ function countSentences(text) {
     .replace(/(\d)\.(\d)/g, '$1$2');
   const parts = cleaned.split(/[.!?]+(?:\s+|$)/).map(s => s.trim()).filter(Boolean);
   return parts.length;
+}
+
+export function extractJsonObject(raw) {
+  if (raw && typeof raw === 'object') return raw;
+  const cleaned = String(raw || '')
+    .replace(/```json\s*/gi, '')
+    .replace(/```/g, '')
+    .trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('No JSON object in LLM response');
+  return JSON.parse(match[0]);
+}
+
+function extractAiText(res) {
+  if (!res) return '';
+  if (typeof res === 'string') return res;
+  if (typeof res.response === 'string') return res.response;
+  if (res.response && typeof res.response === 'object') return JSON.stringify(res.response);
+  if (Array.isArray(res.choices)) return res.choices[0]?.message?.content || '';
+  return '';
 }
 
 /**
@@ -46,9 +98,7 @@ export function buildSourceCorpus(topic, sources) {
       if (!Number.isNaN(d.getTime())) {
         const m = MONTH_NAMES[d.getUTCMonth()];
         const wd = DAY_NAMES[(d.getUTCDay() + 6) % 7];
-        chunks.push(
-          `${m[0]} ${m[1]} ${wd[0]} ${wd[1]} ${d.getUTCDate()} ${d.getUTCFullYear()}`
-        );
+        chunks.push(`${m[0]} ${m[1]} ${wd[0]} ${wd[1]} ${d.getUTCDate()} ${d.getUTCFullYear()}`);
       }
     }
   }
@@ -70,31 +120,13 @@ function extractNumericTokens(text) {
 
 function extractProperNames(text) {
   const names = [];
-  // Multi-word capitalized phrases (e.g. "Taylor Swift", "Pacific Northwest")
   const multiRe = /\b([A-Z][a-zA-Z0-9'’-]+(?:\s+[A-Z][a-zA-Z0-9'’-]+)+)\b/g;
   let m;
-  while ((m = multiRe.exec(text))) {
-    names.push(m[1]);
-  }
-  // Mid-sentence single capitalized words (preceded by lowercase word + space)
+  while ((m = multiRe.exec(text))) names.push(m[1]);
   const midRe = /[a-z0-9,)\]]\s+([A-Z][a-zA-Z0-9'’-]{2,})\b/g;
-  while ((m = midRe.exec(text))) {
-    names.push(m[1]);
-  }
+  while ((m = midRe.exec(text))) names.push(m[1]);
   return names;
 }
-
-const SKIP_PROPER_WORDS = new Set([
-  'the', 'this', 'that', 'these', 'those', 'their', 'there', 'here', 'what',
-  'when', 'where', 'why', 'how', 'who', 'while', 'which', 'after', 'before',
-  'during', 'reported', 'confirmed', 'unconfirmed', 'according', 'officials',
-  'experts', 'analysts', 'residents', 'investors', 'viewers', 'fans', 'players',
-  'users', 'customers', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-  'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june',
-  'july', 'august', 'september', 'october', 'november', 'december',
-  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
-  'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun',
-]);
 
 /**
  * Validate draft structure, word count, banned phrases, duplicates,
@@ -107,9 +139,13 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
   const summary = String(draft.summary || '').trim();
   const whatHappened = String(draft.what_happened || '').trim();
   const whyTrending = String(draft.why_trending || '').trim();
-  const keyFacts = Array.isArray(draft.key_facts) ? draft.key_facts.map(x => String(x || '').trim()).filter(Boolean) : [];
+  const keyFacts = Array.isArray(draft.key_facts)
+    ? draft.key_facts.map(x => String(x || '').trim()).filter(Boolean)
+    : [];
   const whatNext = String(draft.what_to_know_next || '').trim();
-  const alsoSearched = Array.isArray(draft.also_searched) ? draft.also_searched.map(x => String(x || '').trim()).filter(Boolean) : [];
+  const alsoSearched = Array.isArray(draft.also_searched)
+    ? draft.also_searched.map(x => String(x || '').trim()).filter(Boolean)
+    : [];
 
   if (!title) return { ok: false, reason: 'missing title' };
   if (title.length > 60) return { ok: false, reason: `title exceeds 60 chars (${title.length})` };
@@ -127,7 +163,6 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
     return { ok: false, reason: `key_facts must have 3-5 items (got ${keyFacts.length})` };
   }
 
-  // Require bracketed outlet attribution on each bullet
   const validOutlets = sources.map(s => (s.source || '').toLowerCase()).filter(Boolean);
   for (const fact of keyFacts) {
     const bracket = fact.match(/\[([^\]]+)\]/);
@@ -159,7 +194,6 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
     return { ok: false, reason: 'banned phrase "breaking" not present in sources' };
   }
 
-  // Verify numbers and dates appear in source corpus
   const sourceNums = extractNumericTokens(sourceCorpus);
   const draftNums = extractNumericTokens(fullText);
   for (const num of draftNums) {
@@ -168,7 +202,6 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
     }
   }
 
-  // Verify month & weekday names appear in source corpus
   for (const [abbr, full] of [...MONTH_NAMES, ...DAY_NAMES]) {
     const re = new RegExp(`\\b(${abbr}|${full})\\b`, 'i');
     if (re.test(fullText) && !re.test(sourceCorpus)) {
@@ -176,14 +209,11 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
     }
   }
 
-  // Verify proper names in body appear in source corpus
   for (const candidate of extractProperNames(bodyText)) {
     const clean = candidate.replace(/['’]s$/i, '');
     if (COMMON_ACRONYMS.has(clean.toUpperCase())) continue;
     const words = clean.split(/\s+/);
     if (words.length === 1 && SKIP_PROPER_WORDS.has(clean.toLowerCase())) continue;
-
-    // Check full phrase first, then individual non-stopword tokens
     if (lowerCorpus.includes(clean.toLowerCase())) continue;
     const missingToken = words.find(w => {
       const lw = w.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -194,7 +224,6 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
     }
   }
 
-  // Verify also_searched has up to 3 relevant phrases grounded in source text
   const groundedAlso = alsoSearched
     .filter(p => p.split(/\s+/).some(w => w.length > 2 && lowerCorpus.includes(w.toLowerCase())))
     .slice(0, 3);
@@ -228,65 +257,135 @@ export function buildWriterPrompt(topic, category, sources, feedback = '') {
   const feedbackBlock = feedback ? `\nIMPORTANT FIX FOR RETRY: Previous draft was rejected because: ${feedback}\n` : '';
 
   return `You are a neutral news editor writing a factual summary for "${topic}" (category: ${category}).
-Use ONLY facts, names, dates, and numbers from these source headlines and snippets. NEVER invent facts or outside details.
+Use ONLY facts, names, dates, and numbers explicitly present in SOURCES below. NEVER invent facts, stats, ages, or details.
 
 SOURCES:
 ${formattedSources}
 ${feedbackBlock}
 WRITING RULES:
 1. Grade 8 reading level, short clear sentences, no hype, no clickbait, no emojis, no filler intros, no "in conclusion".
-2. Do NOT mention being an AI. Do NOT use "shocking", "you won't believe", or "breaking" (unless "breaking" is in the sources).
-3. Define who or what "${topic}" is in the first sentence of what_happened (e.g., full name and role, or which meaning applies if ambiguous).
-4. Use exact dates, times, and numbers from sources. If sources disagree or details are unconfirmed, write "reported but not confirmed".
-5. Total length across summary + what_happened + why_trending + key_facts + what_to_know_next MUST be 150 to 250 words.
+2. Do NOT mention being an AI. Do NOT use "shocking", "you won't believe", or "breaking" (unless "breaking" is in SOURCES).
+3. Define who or what "${topic}" is in the first sentence of what_happened (full name + role, or clarify which meaning applies).
+4. Use exact dates, times, and numbers from SOURCES. If details are unconfirmed or sources differ, write "reported but not confirmed".
+5. Target 170 to 215 words total across summary + what_happened + why_trending + key_facts + what_to_know_next (must stay strictly within 150-250 words).
 
 OUTPUT ONLY VALID JSON (no markdown fences):
 {
-  "title": "<under 60 chars, plain language, includes ${topic} and intent like 'Why Is X Trending?' or match/release/outage pattern>",
+  "title": "<STRICTLY under 58 chars, plain language, includes ${topic} and search intent>",
   "category": "${category}",
-  "summary": "<ONE single sentence, max 30 words, directly answering what happened>",
-  "what_happened": "<2-3 short sentences covering who, what, when, where>",
-  "why_trending": "<1-2 sentences explaining why people are searching now>",
+  "summary": "<ONE single sentence, 18-28 words, directly answering what happened>",
+  "what_happened": "<2-3 short sentences (45-65 words) covering who, what, when, where>",
+  "why_trending": "<1-2 sentences (25-40 words) explaining why people are searching now>",
   "key_facts": ["<single verifiable fact [Outlet Name]>", "<fact 2 [Outlet Name]>", "<fact 3 [Outlet Name]>"],
-  "what_to_know_next": "<1-2 sentences on upcoming date, next step, or what remains unconfirmed>",
+  "what_to_know_next": "<1-2 sentences (20-35 words) on upcoming date, next step, or what remains unconfirmed>",
   "also_searched": ["<related phrase 1 from sources>", "<related phrase 2>", "<related phrase 3>"]
 }`;
 }
 
-export async function callLLM(env, prompt) {
-  let text = '';
+async function discoverGeminiModels(env) {
+  const candidates = [];
+  if (env.GEMINI_MODEL) candidates.push(env.GEMINI_MODEL);
+  if (cachedGeminiModel) candidates.push(cachedGeminiModel);
+
   try {
-    if (!env.AI) throw new Error('Workers AI binding unavailable');
-    const res = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 700,
-    });
-    text = res.response || '';
-  } catch (err) {
-    if (!env.GEMINI_API_KEY) throw err;
-    const model = env.GEMINI_MODEL || 'gemini-2.0-flash-lite';
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${env.GEMINI_API_KEY}`);
+    if (res.ok) {
+      const data = await res.json();
+      const models = (data.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''))
+        .filter(name => /gemini.*flash/i.test(name) && !/thinking|image|tts|audio|live|2\.0-flash-exp/i.test(name));
+      models.sort((a, b) => {
+        const score = n => (n.includes('flash-lite') ? 2 : 1) + (n.includes('2.5') ? 4 : n.includes('3') ? 6 : 0);
+        return score(b) - score(a);
+      });
+      for (const m of models) {
+        if (!candidates.includes(m)) candidates.push(m);
       }
-    );
-    if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
-    const json = await res.json();
-    text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+  } catch { /* fall back to static list */ }
+
+  for (const m of GEMINI_FALLBACK_MODELS) {
+    if (!candidates.includes(m)) candidates.push(m);
   }
-  return text;
+  return candidates.slice(0, 4);
 }
 
 /**
- * Second LLM pass: verifies every number, date, and name is supported by sources.
+ * Call Workers AI across active models, falling back to Gemini free API.
  */
+export async function callLLM(env, prompt) {
+  const errors = [];
+
+  if (env.AI) {
+    const aiModels = [...new Set([env.AI_MODEL, cachedAiModel, ...WORKERS_AI_MODELS].filter(Boolean))];
+    for (const model of aiModels) {
+      try {
+        const res = await env.AI.run(model, {
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 750,
+          temperature: 0.2,
+        });
+        const text = extractAiText(res);
+        if (text) {
+          cachedAiModel = model;
+          return text;
+        }
+        errors.push(`${model}: empty response`);
+      } catch (err) {
+        errors.push(`${model}: ${err.message}`);
+        if (model === cachedAiModel) cachedAiModel = null;
+      }
+    }
+  } else {
+    errors.push('Workers AI binding missing');
+  }
+
+  if (!env.GEMINI_API_KEY) {
+    throw new Error(`LLM unavailable (${errors.join('; ')})`);
+  }
+
+  const geminiModels = await discoverGeminiModels(env);
+  for (const model of geminiModels) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+          }),
+        }
+      );
+      if (!res.ok) {
+        errors.push(`Gemini ${model}: HTTP ${res.status}`);
+        if (model === cachedGeminiModel) cachedGeminiModel = null;
+        continue;
+      }
+      const json = await res.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      if (text) {
+        cachedGeminiModel = model;
+        return text;
+      }
+      errors.push(`Gemini ${model}: empty text`);
+    } catch (err) {
+      errors.push(`Gemini ${model}: ${err.message}`);
+    }
+  }
+
+  throw new Error(errors.join('; '));
+}
+
 async function verifyWithLLM(env, draft, topic, sources) {
-  const sourceList = sources.slice(0, 8).map(s => `[${s.source} | ${s.pubDate || ''}] ${s.title} ${s.snippet || ''}`).join('\n');
-  const prompt = `Fact-check this draft about "${topic}" strictly against the SOURCES below.
-Check whether EVERY number, date, time, and proper name in the draft appears in the SOURCES.
+  const sourceList = sources
+    .slice(0, 8)
+    .map(s => `[${s.source} | ${s.pubDate || ''}] ${s.title} ${s.snippet || ''}`)
+    .join('\n');
+  const prompt = `Fact-check this draft about "${topic}" strictly against SOURCES.
+Verify EVERY number, date, time, and proper name in the draft appears in SOURCES.
 
 SOURCES:
 ${sourceList}
@@ -294,23 +393,20 @@ ${sourceList}
 DRAFT:
 ${JSON.stringify(draft)}
 
-Reply ONLY with valid JSON:
-{"ok":true} if every number, date, and name is supported by the sources, or {"ok":false,"reason":"<specific unsupported item>"} if anything is invented.`;
+Reply ONLY with JSON: {"ok":true} or {"ok":false,"reason":"<unsupported item>"}`;
 
   try {
     const raw = await callLLM(env, prompt);
-    const parsed = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+    const parsed = extractJsonObject(raw);
     if (parsed.ok === false) return { ok: false, reason: parsed.reason || 'failed LLM fact-check' };
     return { ok: true };
   } catch {
-    // Fall back to deterministic check if verifier LLM quota is exhausted
     return { ok: true };
   }
 }
 
 /**
  * Deterministic grounded mock generator for DEV_MODE and offline test suite.
- * Builds a 160-200 word structured JSON post strictly from the input sources.
  */
 export function mockGenerate(topic, category, sources) {
   const primary = sources[0] || {};
@@ -372,9 +468,8 @@ export function mockGenerate(topic, category, sources) {
 
 /**
  * Full pipeline for a single topic:
- * 1. Blocklist check (topic + headlines + snippets)
- * 2. Minimum 2 distinct outlets check
- * 3. Generate + quality gate with up to 2 retries
+ * - Returns infra_error when LLM service fails so topic is NOT permanently blacklisted
+ * - Returns ok: false with code sensitive | single_source | quality_gate for content rejections
  */
 export async function generateAndValidatePost(env, topicObj, existingTitles = new Set(), options = {}) {
   const { topic, sources = [] } = topicObj;
@@ -398,6 +493,7 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
   const useMock = options.forceMock || String(env?.DEV_MODE || '').toLowerCase() === 'true';
   let feedback = '';
   let lastReason = 'validation failed';
+  let infraFailures = 0;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     let draft;
@@ -408,11 +504,17 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
         draft = mockGenerate(topic, category, sources);
       } else {
         const raw = await callLLM(env, buildWriterPrompt(topic, category, sources, feedback));
-        draft = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]);
+        draft = extractJsonObject(raw);
       }
     } catch (err) {
       lastReason = `generation error: ${err.message}`;
       feedback = lastReason;
+      if (/HTTP \d+|unavailable|subrequests|timeout/i.test(err.message)) {
+        infraFailures++;
+        if (infraFailures >= 2) {
+          return { ok: false, code: 'infra_error', reason: lastReason };
+        }
+      }
       continue;
     }
 
@@ -435,7 +537,7 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
     return { ok: true, post: check.post };
   }
 
-  return { ok: false, code: 'quality_gate', reason: lastReason };
+  return { ok: false, code: infraFailures ? 'infra_error' : 'quality_gate', reason: lastReason };
 }
 
 /**

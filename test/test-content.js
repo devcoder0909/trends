@@ -7,6 +7,8 @@
 
 import { generateAndValidatePost, validateDraft } from '../src/content.js';
 import { rankTopics } from '../src/rss.js';
+import { buildMetaDescription, slugify, CSS } from '../src/render.js';
+import { isNearDuplicateTopic } from '../src/index.js';
 
 const NOW = 'Thu, 26 Nov 2026 14:00:00 GMT';
 
@@ -175,6 +177,33 @@ async function run() {
       console.error(`[FAIL] ${name} -> Expected REJECT but passed`);
       failures++;
     }
+  }
+
+  // Verify SEO meta description length (120-158 chars), slugify, CSS size, and near-duplicate filter
+  const metaDesc = buildMetaDescription(baseDraft);
+  if (metaDesc.length < 120 || metaDesc.length > 158) {
+    console.error(`[FAIL] Meta description length ${metaDesc.length} not in 120-158`);
+    failures++;
+  } else {
+    console.log(`[PASS] Meta description length ${metaDesc.length} chars (120-158)`);
+  }
+  if (slugify("d'andre swift") !== 'dandre-swift') {
+    console.error('[FAIL] slugify apostrophe handling');
+    failures++;
+  }
+  const cssBytes = Buffer.byteLength(CSS, 'utf8');
+  if (cssBytes >= 1536) {
+    console.error(`[FAIL] CSS ${cssBytes} bytes >= 1536`);
+    failures++;
+  } else {
+    console.log(`[PASS] CSS size ${cssBytes} bytes (< 1536)`);
+  }
+  if (!isNearDuplicateTopic('nba games', [{ topic: 'nba games today', title: 'NBA Games Today' }]) ||
+      isNearDuplicateTopic('apple macbook', [{ topic: 'nba games today', title: 'NBA Games Today' }])) {
+    console.error('[FAIL] Near-duplicate detection check failed');
+    failures++;
+  } else {
+    console.log('[PASS] Near-duplicate topic detection verified');
   }
 
   console.log(`\nTotal failures: ${failures}`);

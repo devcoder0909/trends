@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { handleFetch } from '../src/index.js';
+import { handleFetch, handleScheduled } from '../src/index.js';
 import { processExpirationsAndExtensions } from '../src/lifetime.js';
 import { getSettings } from '../src/config.js';
 
@@ -177,14 +177,25 @@ async function run() {
     `extended=${extRow.extended}, hoursLeft=${extHoursLeft}, status=${extRes.status}`
   );
 
-  // Sitemaps check: extended >48h old post MUST be in sitemap.xml and NOT in news-sitemap.xml
+  // Sitemaps & category hub check: extended >48h old post MUST be in sitemap.xml and /c/tech, NOT in news-sitemap.xml
   const smXml = await (await handleFetch(new Request('https://trends.example.com/sitemap.xml'), env, ctx)).text();
   const nsmXml = await (await handleFetch(new Request('https://trends.example.com/news-sitemap.xml'), env, ctx)).text();
+  const catRes = await handleFetch(new Request('https://trends.example.com/c/tech'), env, ctx);
+  const catHtml = await catRes.text();
   record(
-    'Sitemap keeps extended post; news-sitemap limits to 48h',
-    smXml.includes('/p/google-hit-post') && !nsmXml.includes('/p/google-hit-post'),
-    'verified'
+    'Sitemap keeps extended post & /c/tech hub; news-sitemap limits to 48h',
+    smXml.includes('/p/google-hit-post') && smXml.includes('/c/tech') && !nsmXml.includes('/p/google-hit-post') && catRes.status === 200 && catHtml.includes('google-hit-post'),
+    `catStatus=${catRes.status}`
   );
+
+  // 7-day cleanup check: old seen_topics & rejected rows (>7 days) are purged by handleScheduled
+  const old8d = new Date(nowMs - 8 * 86400_000).toISOString();
+  db.sqlite.prepare('INSERT INTO rejected (topic_hash, topic, geo, reason, details, rejected_at) VALUES (?, ?, ?, ?, ?, ?)').run('old-rej', 'Old Rej', 'US', 'sensitive', '', old8d);
+  db.sqlite.prepare('INSERT INTO seen_topics (topic_hash, slug, seen_at) VALUES (?, ?, ?)').run('old-seen', 'old-seen', old8d);
+  await handleScheduled({ ...env, SITE_END_AT: new Date(nowMs - 1000).toISOString() });
+  const oldRejLeft = db.sqlite.prepare('SELECT COUNT(*) as c FROM rejected WHERE topic_hash = ?').get('old-rej').c;
+  const oldSeenLeft = db.sqlite.prepare('SELECT COUNT(*) as c FROM seen_topics WHERE topic_hash = ?').get('old-seen').c;
+  record('7-day cleanup purges old rejected & seen_topics rows', oldRejLeft === 0 && oldSeenLeft === 0, `rej=${oldRejLeft}, seen=${oldSeenLeft}`);
 
   // Case 4: Kill switch SITE_END_AT — keeps serving extended post until its 7-day expires_at, then 410 everything
   const endedEnv = { ...env, SITE_END_AT: new Date(nowMs - 3600_000).toISOString() };
