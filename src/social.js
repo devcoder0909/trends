@@ -1,8 +1,11 @@
 /**
  * Zero-budget Social Auto-Publisher:
- * - Free native APIs: Bluesky (AT Protocol + external link cards), Telegram Channel, Mastodon, Discord, Webhook (n8n/custom)
+ * - Free native APIs: Facebook Page (Meta Graph API), Bluesky (AT Protocol + link cards),
+ *   Telegram Channel, Mastodon, Discord, Webhook (n8n/custom)
  * - Optional X (Twitter v2 OAuth 1.0a HMAC-SHA1) when X credentials are configured
  */
+
+import { stripInlineSourceTags } from './config.js';
 
 const timeoutSig = (ms = 7000) =>
   (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
@@ -323,6 +326,58 @@ async function postToX(env, item, budget) {
 }
 
 /**
+ * Format an engaging, scannable Facebook Page post designed for high click-through
+ * paired with Facebook's clickable 1200x630 Open Graph link card preview.
+ */
+export function formatFacebookPost(post, siteUrl) {
+  const formatted = formatSocialPost(post, siteUrl, 295);
+  const catLabel = String(post.category || 'News').toUpperCase();
+  const title = stripInlineSourceTags(formatted.title);
+  const summary = stripInlineSourceTags(formatted.summary);
+
+  let rawFacts = post.key_facts;
+  if (typeof rawFacts === 'string') {
+    try { rawFacts = JSON.parse(rawFacts); } catch { rawFacts = []; }
+  }
+  const bullets = Array.isArray(rawFacts)
+    ? rawFacts.map(f => stripInlineSourceTags(f)).filter(Boolean).slice(0, 2)
+    : [];
+
+  const lines = [`[${catLabel} BRIEFING] ${title}`];
+  if (summary) lines.push('', summary);
+  if (bullets.length) {
+    lines.push('', 'Key takeaways:', ...bullets.map(b => `• ${b}`));
+  }
+  lines.push('', `Read the full briefing & timeline:`, formatted.url);
+  if (formatted.tags.length) lines.push('', formatted.tags.join(' '));
+
+  return {
+    message: lines.join('\n'),
+    link: formatted.url,
+  };
+}
+
+async function postToFacebook(env, post, siteUrl, budget) {
+  if (!env.FB_PAGE_ID || !env.FB_PAGE_TOKEN) return;
+  if (budget && budget.remaining() <= 1) return;
+  if (budget) budget.spend(1);
+
+  const ver = (env.FB_GRAPH_VERSION || 'v22.0').replace(/^\/+|\/+$/g, '');
+  const fbPost = formatFacebookPost(post, siteUrl);
+  const res = await fetch(`https://graph.facebook.com/${ver}/${encodeURIComponent(env.FB_PAGE_ID)}/feed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: timeoutSig(7000),
+    body: JSON.stringify({
+      message: fbPost.message,
+      link: fbPost.link,
+      access_token: env.FB_PAGE_TOKEN,
+    }),
+  });
+  if (!res.ok) throw new Error(`Facebook HTTP ${res.status}`);
+}
+
+/**
  * Broadcast newly published trending stories (max 2 per tick) across all configured
  * zero-budget social platforms without interrupting indexing on any channel failure.
  */
@@ -331,6 +386,7 @@ export async function publishToSocial(env, posts, siteUrl, budget = null, { forc
   if (!force && String(env?.DEV_MODE || '').toLowerCase() === 'true') return [];
 
   const hasAnyTarget = Boolean(
+    (env.FB_PAGE_ID && env.FB_PAGE_TOKEN) ||
     (env.BLUESKY_HANDLE && env.BLUESKY_APP_PASSWORD) ||
     (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) ||
     (env.MASTODON_INSTANCE && env.MASTODON_TOKEN) ||
@@ -345,6 +401,7 @@ export async function publishToSocial(env, posts, siteUrl, budget = null, { forc
     const formatted = formatSocialPost(post, siteUrl, 295);
     const item = { ...formatted, slug: post.slug, siteUrl };
     const tasks = [
+      ['facebook', () => postToFacebook(env, post, siteUrl, budget)],
       ['bluesky', () => postToBluesky(env, item, budget)],
       ['telegram', () => postToTelegram(env, item, budget)],
       ['mastodon', () => postToMastodon(env, item, budget)],

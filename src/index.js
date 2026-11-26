@@ -457,7 +457,14 @@ export async function handleScheduled(env) {
           const catPath = `/c/${slugify(post.category || 'News')}`;
           touchedCats.add(catPath);
           newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
-          publishedPosts.push({ slug: hash, title: post.title, summary: post.summary, category: post.category, topic: item.title });
+          publishedPosts.push({
+            slug: hash,
+            title: post.title,
+            summary: post.summary,
+            key_facts: post.key_facts,
+            category: post.category,
+            topic: item.title,
+          });
           count++;
         }
       } catch { /* duplicate slug — skip gracefully */ }

@@ -6,7 +6,7 @@
  */
 
 import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
-import { formatSocialPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
+import { formatSocialPost, formatFacebookPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
 import { formatDisplayTopic, stripInlineSourceTags } from '../src/config.js';
 import { rankTopics } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
@@ -364,7 +364,23 @@ async function run() {
     const oauthSig = await signOAuth1Header('POST', 'https://api.x.com/2/tweets', {
       consumerKey: 'ck', consumerSecret: 'cs', accessToken: 'at', accessSecret: 'as',
     });
+    const fbFormatted = formatFacebookPost({
+      slug: 'arsenal-vs-chelsea',
+      title: 'Arsenal vs Chelsea Match Result',
+      summary: 'Arsenal moved top with a 2-1 win [ESPN].',
+      key_facts: ['Bukayo Saka scored in minute 78 [BBC Sport].', 'Arsenal reached 34 points [ESPN].'],
+      category: 'Sports',
+      topic: 'arsenal vs chelsea',
+    }, 'https://trends.example.com');
+    const fbClean = fbFormatted.link === 'https://trends.example.com/p/arsenal-vs-chelsea' &&
+      fbFormatted.message.includes('[SPORTS BRIEFING]') &&
+      fbFormatted.message.includes('Key takeaways:') &&
+      !fbFormatted.message.includes('[ESPN]') &&
+      !fbFormatted.message.includes('[BBC Sport]');
+
     const pubResults = await publishToSocial({
+      FB_PAGE_ID: '1234567890',
+      FB_PAGE_TOKEN: 'fb-tok',
       BLUESKY_HANDLE: 'trends.bsky.social',
       BLUESKY_APP_PASSWORD: 'app-pw',
       TELEGRAM_BOT_TOKEN: '123:abc',
@@ -377,14 +393,22 @@ async function run() {
       X_CONSUMER_SECRET: 'cs',
       X_ACCESS_TOKEN: 'at',
       X_ACCESS_SECRET: 'as',
-    }, [{ slug: 'arsenal-vs-chelsea', title: 'Arsenal vs Chelsea', summary: 'Summary line.', category: 'Sports', topic: 'arsenal vs chelsea' }], 'https://trends.example.com', null, { force: true });
-    const allOk = pubResults.length === 6 && pubResults.every(r => r.ok);
+    }, [{
+      slug: 'arsenal-vs-chelsea',
+      title: 'Arsenal vs Chelsea',
+      summary: 'Summary line.',
+      key_facts: ['Fact 1', 'Fact 2'],
+      category: 'Sports',
+      topic: 'arsenal vs chelsea',
+    }], 'https://trends.example.com', null, { force: true });
+    const allOk = pubResults.length === 7 && pubResults.every(r => r.ok);
     const hasFacet = socialRequests.some(r => r.url.includes('createRecord') && String(r.body).includes('app.bsky.richtext.facet#link'));
-    if (!allOk || !hasFacet || !oauthSig.startsWith('OAuth ')) {
-      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}`);
+    const hasFbFeed = socialRequests.some(r => r.url.includes('graph.facebook.com/') && r.url.includes('/1234567890/feed'));
+    if (!allOk || !hasFacet || !hasFbFeed || !fbClean || !oauthSig.startsWith('OAuth ')) {
+      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}, hasFbFeed=${hasFbFeed}, fbClean=${fbClean}`);
       failures++;
     } else {
-      console.log('[PASS] Multi-platform zero-budget social publish (Bluesky, Telegram, Mastodon, Discord, Webhook, X) verified');
+      console.log('[PASS] Multi-platform zero-budget social publish (Facebook Page, Bluesky, Telegram, Mastodon, Discord, Webhook, X) verified');
     }
   } finally {
     globalThis.fetch = origFetch;

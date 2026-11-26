@@ -39,6 +39,8 @@ EXTEND_MIN_HITS    = "1"                               # search-engine human vis
 #   npx wrangler secret put CUSTOM_AI_URL         # optional custom OpenAI-compatible chat URL (+ CUSTOM_AI_KEY, CUSTOM_AI_MODEL)
 #   npx wrangler secret put GOOGLE_INDEXING_KEY   # Google Indexing API v3 service account JSON
 #   Free Social Auto-Publish Secrets (optional, 0 budget):
+#   npx wrangler secret put FB_PAGE_ID            # Facebook Page numeric ID (+ FB_PAGE_TOKEN)
+#   npx wrangler secret put FB_PAGE_TOKEN         # Facebook Page Access Token (Graph API)
 #   npx wrangler secret put BLUESKY_HANDLE        # (+ BLUESKY_APP_PASSWORD)
 #   npx wrangler secret put TELEGRAM_BOT_TOKEN    # (+ TELEGRAM_CHANNEL_ID e.g. @yourchannel)
 #   npx wrangler secret put MASTODON_INSTANCE     # e.g. https://mastodon.social (+ MASTODON_TOKEN)
