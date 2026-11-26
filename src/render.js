@@ -1,6 +1,6 @@
 /**
  * Server-rendered HTML templates, inline CSS (< 1.5KB), JSON-LD schemas,
- * category hubs, dark mode, relative timestamps, and clean editorial UI.
+ * category hubs, relative timestamps, and compact Google News UI.
  */
 
 export const esc = s => String(s || '')
@@ -17,8 +17,8 @@ export const slugify = s =>
     .replace(/^-|-$/g, '')
     .slice(0, 80);
 
-// Inline CSS (< 1.5KB) — Google News-inspired clean white theme, 700px, 18px/1.6
-export const CSS = `*{margin:0;padding:0;box-sizing:border-box}html{color-scheme:light}body{font:18px/1.6 system-ui,sans-serif;max-width:700px;margin:0 auto;padding:1rem 1rem 2rem;color:#202124;background:#f6f8fc}header,article,nav{background:#fff;border:1px solid #dadce0;border-radius:12px;padding:1rem 1.2rem;margin:0 0 1rem}.brand{font-size:1.35rem;font-weight:700;color:#202124;text-decoration:none}.sub,.meta,.s{color:#5f6368;font-size:.85rem}.nav{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem;font-size:.82rem}.nav a{color:#3c4043;background:#f1f3f4;padding:.15rem .6rem;border-radius:16px;text-decoration:none}.nav a:hover{background:#e8f0fe;color:#1967d2}h1{font-size:1.55rem;line-height:1.25;margin:.3rem 0 .5rem}h2{font-size:1.2rem;line-height:1.32;margin:.25rem 0 .4rem}h2.sec{font-size:.88rem;text-transform:uppercase;letter-spacing:.04em;color:#5f6368;margin:1.1rem 0 .3rem}p{margin:.6rem 0}ul{padding-left:1.2rem;margin:.5rem 0}li{margin:.3rem 0}a{color:#1a73e8;text-decoration:none}a:hover{text-decoration:underline}h2 a,nav li a{color:#202124}h2 a:hover{color:#1a73e8}.kicker{font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#1a73e8}.sum{font-weight:500;background:#f8fafe;border-left:3px solid #1a73e8;padding:.5rem .75rem;border-radius:0 8px 8px 0}.upd{border-left:3px solid #e37400;padding-left:.7rem;font-size:.95rem}footer{margin-top:1.4rem;padding-top:1rem;border-top:1px solid #dadce0;font-size:.82rem;color:#5f6368}`;
+// Inline CSS (< 1.5KB) — compact Google News white UI, 620px feed, 15.5px/1.48
+export const CSS = `*{margin:0;padding:0;box-sizing:border-box}body{font:15.5px/1.48 system-ui,sans-serif;color:#1f1f1f;background:#f6f8fc}header{background:#fff;border-bottom:1px solid #dadce0;padding:.5rem 1rem 0}.w,main,footer{max-width:620px;margin:0 auto}main,footer{padding:0 .7rem;margin:.65rem auto}.brand{font-size:1.2rem;font-weight:600;color:#5f6368}.brand b,.kicker,a,h1.hd,.tabs a.on,.tabs a:hover,h2 a:hover{color:#1a73e8}.tabs{display:flex;gap:.8rem;overflow-x:auto;margin-top:.3rem;font-size:.82rem}.tabs a{color:#5f6368;padding:.28rem 0;border-bottom:3px solid transparent;white-space:nowrap}.tabs a.on,.tabs a:hover{border-color:#1a73e8}.card{background:#fff;border:1px solid #dadce0;border-radius:12px;padding:.1rem .8rem;margin:0 0 .6rem}article{padding:.55rem 0;border-bottom:1px solid #e8eaed}article:last-child{border:0}h1{font-size:1.25rem;line-height:1.28;margin:.2rem 0 .35rem}h1.hd{font-size:1.08rem;margin:0 0 .4rem .1rem;font-weight:500}h2{font-size:1.02rem;line-height:1.3;margin:.15rem 0 .28rem;font-weight:500}p{margin:.32rem 0}ul{padding-left:1.1rem;margin:.25rem 0}li{margin:.15rem 0}a{text-decoration:none}a:hover{text-decoration:underline}h2 a,nav li a{color:#1f1f1f}.meta,.s,h2.sec,footer{color:#5f6368;font-size:.78rem}h2.sec{text-transform:uppercase;margin:.65rem 0 .2rem}.kicker{font-weight:600}.sum{font-weight:500;background:#f8fafe;border-left:2.5px solid #1a73e8;padding:.28rem .5rem;font-size:.92rem}.upd{border-left:2.5px solid #e37400;padding-left:.5rem;font-size:.9rem}nav.card{padding:.55rem .8rem}`;
 
 export function timeAgo(iso, nowMs = Date.now()) {
   const diffSec = Math.max(0, Math.floor((nowMs - Date.parse(iso)) / 1000));
@@ -61,14 +61,20 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article')
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${canon}">${hreflangLinks(canon, geos)}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${canon}"><meta property="og:type" content="${ogType}"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
-function siteHeader(siteName, isHome = false) {
+function siteHeader(siteName, activeTab = 'home') {
+  const parts = String(siteName || 'Trending Now').trim().split(/\s+/);
+  const brandHtml = parts.length > 1
+    ? `<b>${esc(parts[0])}</b> ${esc(parts.slice(1).join(' '))}`
+    : `<b>${esc(siteName)}</b>`;
   const cats = ['Sports', 'Tech', 'Entertainment', 'Business', 'Science', 'Weather', 'Gaming'];
-  const navLinks = `<a href="/">All</a>` + cats.map(c => `<a href="/c/${slugify(c)}">${c}</a>`).join('');
-  return `<header><a class="brand" href="/">${esc(siteName)}</a>${isHome ? '<p class="sub">Real-time factual briefings on what is trending now.</p>' : ''}<div class="nav" role="navigation" aria-label="Categories">${navLinks}</div></header>`;
+  const tab = (slug, label, href) =>
+    `<a${activeTab === slug ? ' class="on"' : ''} href="${href}">${label}</a>`;
+  const navLinks = tab('home', 'Home', '/') + cats.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
+  return `<header><div class="w"><a class="brand" href="/">${brandHtml}</a><div class="tabs" role="navigation" aria-label="Categories">${navLinks}</div></div></header>`;
 }
 
 function htmlFoot(email) {
-  return `<footer><p>Factual summaries grounded in public news reports. Contact: <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer></body></html>`;
+  return `<footer><p>Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer></body></html>`;
 }
 
 function findMatchingLiveLinks(post, livePosts) {
@@ -177,7 +183,7 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now()) {
     `<script type="application/ld+json">${ld}</script>`,
     'website'
   );
-  h += siteHeader(settings.siteName, true) + '<main><h1 style="font-size:1.05rem;color:#5f6368;margin:0 0 .75rem .2rem">Top Briefings</h1>';
+  h += siteHeader(settings.siteName, 'home') + '<main><h1 class="hd">Top stories</h1><div class="card">';
 
   for (const p of posts) {
     const cat = p.category || 'News';
@@ -194,8 +200,8 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now()) {
     h += `</article>`;
   }
 
-  if (!posts.length) h += '<p>No active briefings right now. Check back shortly.</p>';
-  return h + '</main>' + htmlFoot(settings.contactEmail);
+  if (!posts.length) h += '<article><p>No active briefings right now. Check back shortly.</p></article>';
+  return h + '</div></main>' + htmlFoot(settings.contactEmail);
 }
 
 export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Date.now()) {
@@ -234,14 +240,14 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
   ]).replace(/<\//g, '<\\/');
 
   let h = htmlHead(title, desc, canon, settings.geos, `<script type="application/ld+json">${ld}</script>`, 'website');
-  h += siteHeader(settings.siteName, false) + `<main><h1>${esc(categoryName)} Trends</h1><p class="meta">${esc(desc)}</p>`;
+  h += siteHeader(settings.siteName, catSlug) + `<main><h1 class="hd">${esc(categoryName)}</h1><div class="card">`;
   for (const p of posts) {
     h += `<article id="${esc(p.slug)}"><p class="meta"><time datetime="${esc(p.created_at)}">${timeAgo(p.created_at, nowMs)}</time></p><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
     h += renderPostBody(p, posts, nowMs, { isHome: true });
     h += `</article>`;
   }
-  if (!posts.length) h += `<p>No active ${esc(categoryName.toLowerCase())} briefings right now. <a href="/">View all trends</a>.</p>`;
-  return h + `<p><a href="/">← All Trends</a></p></main>` + htmlFoot(settings.contactEmail);
+  if (!posts.length) h += `<article><p>No active ${esc(categoryName.toLowerCase())} briefings right now. <a href="/">View Top stories</a>.</p></article>`;
+  return h + `</div><p class="s"><a href="/">← Back to Top stories</a></p></main>` + htmlFoot(settings.contactEmail);
 }
 
 export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Date.now()) {
@@ -282,8 +288,8 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   const ldScripts = `<script type="application/ld+json">${JSON.stringify([newsLd, breadcrumbLd]).replace(/<\//g, '<\\/')}</script>`;
 
   let h = htmlHead(title, desc, canon, settings.geos, ldScripts);
-  h += siteHeader(settings.siteName, false);
-  h += `<main><article id="${esc(post.slug)}">`;
+  h += siteHeader(settings.siteName, catSlug);
+  h += `<main><div class="card"><article id="${esc(post.slug)}">`;
   h += `<p class="meta"><a class="kicker" href="/c/${esc(catSlug)}">${esc(cat)}</a> · Published <time datetime="${esc(post.created_at)}">${timeAgo(post.created_at, nowMs)}</time>`;
   if (post.updated_at && post.updated_at !== post.created_at) {
     h += ` · Updated <time datetime="${esc(post.updated_at)}">${timeAgo(post.updated_at, nowMs)}</time>`;
@@ -291,17 +297,17 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   h += `</p>`;
   h += `<h1>${esc(post.title)}</h1>`;
   h += renderPostBody(post, livePosts, nowMs, { isHome: false });
-  h += `</article>`;
+  h += `</article></div>`;
 
   if (related.length) {
-    h += '<nav><h2 class="sec">More trending now</h2><ul>';
+    h += '<nav class="card"><h2 class="sec">More trending now</h2><ul>';
     for (const r of related) {
       const rCat = r.category || 'News';
       h += `<li><a class="kicker" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · <a href="/p/${esc(r.slug)}">${esc(r.title)}</a></li>`;
     }
     h += '</ul></nav>';
   }
-  h += `<p><a href="/">← All Trends</a></p></main>` + htmlFoot(settings.contactEmail);
+  h += `<p class="s"><a href="/">← Back to Top stories</a></p></main>` + htmlFoot(settings.contactEmail);
   return h;
 }
 
@@ -314,20 +320,20 @@ export function aboutPage(settings, siteUrl) {
     '',
     'website'
   ) +
-    siteHeader(settings.siteName, false) +
-    `<main><h1>About ${esc(settings.siteName)}</h1>` +
+    siteHeader(settings.siteName, '') +
+    `<main><div class="card"><article><h1>About ${esc(settings.siteName)}</h1>` +
     `<p>This site publishes short, factual briefings on trending search topics using only headlines and snippets from public news feeds.</p>` +
     `<ul><li>Every fact, number, and date is checked against listed news outlets before publishing.</li>` +
     `<li>Briefings rotate automatically as trends evolve.</li>` +
     `<li>Sensitive topics, rumors, and single-outlet stories are filtered out.</li>` +
     `<li>No personal data, IP addresses, ads, or analytics scripts are used.</li>` +
-    `<li>Contact: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul>` +
-    `<p><a href="/">← All Trends</a></p></main>` +
+    `<li>Contact: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul></article></div>` +
+    `<p class="s"><a href="/">← Back to Top stories</a></p></main>` +
     htmlFoot(settings.contactEmail);
 }
 
 export const gonePage = () =>
-  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,follow"><title>Post Expired</title><style>${CSS}</style></head><body><main><h1>This briefing is no longer active</h1><p>This story has rotated out of the current trending window.</p><p><a href="/">← View current trends</a></p></main></body></html>`;
+  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="robots" content="noindex,follow"><title>Post Expired</title><style>${CSS}</style></head><body><main><div class="card"><article><h1>This briefing is no longer active</h1><p>This story has rotated out of the current trending window.</p><p><a href="/">← View Top stories</a></p></article></div></main></body></html>`;
 
 export const endedPage = () =>
-  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Site Ended</title><style>${CSS}</style></head><body><main><h1>This site has ended</h1><p>This trend site has concluded its run.</p></main></body></html>`;
+  `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="robots" content="noindex"><title>Site Ended</title><style>${CSS}</style></head><body><main><div class="card"><article><h1>This site has ended</h1><p>This trend site has concluded its run.</p></article></div></main></body></html>`;
