@@ -218,6 +218,87 @@ async function run() {
     `home=${homeDead.status}, post=${postDead.status}`
   );
 
+  // Case 5: Pagination, Search, Back Button, Redirects, OG PNG & Favicon
+  const uiDb = createD1Shim('schema.sql');
+  const uiEnv = { ...env, DB: uiDb };
+  for (let i = 1; i <= 15; i++) {
+    const cAt = new Date(nowMs - (16 - i) * 60_000).toISOString();
+    const eAt = new Date(nowMs + 40 * 3600_000).toISOString();
+    insertPost(uiDb, {
+      slug: `topic-${i}`,
+      title: `Trending Topic Number ${i} Update`,
+      createdAt: cAt,
+      expiresAt: eAt,
+      category: i <= 12 ? 'Tech' : 'Sports',
+    });
+  }
+
+  const pg1Res = await handleFetch(new Request('https://trends.example.com/'), uiEnv, ctx);
+  const pg1Html = await pg1Res.text();
+  const pg1Cards = (pg1Html.match(/<article class="c"/g) || []).length;
+  const pg2Res = await handleFetch(new Request('https://trends.example.com/page/2'), uiEnv, ctx);
+  const pg2Html = await pg2Res.text();
+  const pg2Cards = (pg2Html.match(/<article class="c"/g) || []).length;
+  const pg9Res = await handleFetch(new Request('https://trends.example.com/page/9'), uiEnv, ctx);
+
+  record(
+    'Pagination splits 15 posts into 10 on page 1, 5 on page 2, 404 out-of-range',
+    pg1Res.status === 200 && pg1Cards === 10 && pg2Res.status === 200 && pg2Cards === 5 &&
+    pg2Html.includes('data-bk="1"') && pg2Html.includes('<link rel="canonical" href="https://trends.example.com/page/2">') &&
+    pg9Res.status === 404,
+    `pg1=${pg1Cards}, pg2=${pg2Cards}, pg9=${pg9Res.status}`
+  );
+
+  const r1 = await handleFetch(new Request('https://trends.example.com/?page=2'), uiEnv, ctx);
+  const r2 = await handleFetch(new Request('https://trends.example.com/page/1'), uiEnv, ctx);
+  const r3 = await handleFetch(new Request('https://trends.example.com/c/tech?page=2'), uiEnv, ctx);
+  const r4 = await handleFetch(new Request('https://trends.example.com/c/tech/page/1'), uiEnv, ctx);
+  record(
+    'Pagination canonical 301 redirects (?page=N, /page/1, /c/cat/page/1)',
+    r1.status === 301 && r1.headers.get('location') === 'https://trends.example.com/page/2' &&
+    r2.status === 301 && r2.headers.get('location') === 'https://trends.example.com/' &&
+    r3.status === 301 && r3.headers.get('location') === 'https://trends.example.com/c/tech/page/2' &&
+    r4.status === 301 && r4.headers.get('location') === 'https://trends.example.com/c/tech',
+    `statuses=${r1.status},${r2.status},${r3.status},${r4.status}`
+  );
+
+  const catPg2Res = await handleFetch(new Request('https://trends.example.com/c/tech/page/2'), uiEnv, ctx);
+  const catPg2Html = await catPg2Res.text();
+  record(
+    'Category pagination serves remaining 2 Tech cards on /c/tech/page/2',
+    catPg2Res.status === 200 && (catPg2Html.match(/<article class="c"/g) || []).length === 2,
+    `status=${catPg2Res.status}`
+  );
+
+  const searchHitRes = await handleFetch(new Request('https://trends.example.com/search?q=Number+14'), uiEnv, ctx);
+  const searchHitHtml = await searchHitRes.text();
+  const searchMissRes = await handleFetch(new Request('https://trends.example.com/search?q=zzzznone'), uiEnv, ctx);
+  const searchMissHtml = await searchMissRes.text();
+  record(
+    'Search returns ranked results, noindex header, back bar & zero-result suggestions',
+    searchHitRes.status === 200 &&
+    (searchHitRes.headers.get('x-robots-tag') || '').includes('noindex') &&
+    searchHitHtml.includes('topic-14') &&
+    searchHitHtml.includes('data-bk="1"') &&
+    (searchHitRes.headers.get('content-security-policy') || '').includes("form-action 'self'") &&
+    searchMissRes.status === 200 &&
+    searchMissHtml.includes('Try searching one of today'),
+    `hit=${searchHitRes.status}, miss=${searchMissRes.status}`
+  );
+
+  const ogRes = await handleFetch(new Request('https://trends.example.com/og.png'), uiEnv, ctx);
+  const ogBytes = new Uint8Array(await ogRes.arrayBuffer());
+  const ogPostRes = await handleFetch(new Request('https://trends.example.com/og/topic-14.png'), uiEnv, ctx);
+  const favRes = await handleFetch(new Request('https://trends.example.com/favicon.svg'), uiEnv, ctx);
+  record(
+    'OG PNG (/og.png, /og/:slug.png) & favicon (/favicon.svg) serve valid assets',
+    ogRes.status === 200 && ogRes.headers.get('content-type') === 'image/png' &&
+    ogBytes[0] === 137 && ogBytes[1] === 80 && ogBytes[2] === 78 && ogBytes[3] === 71 &&
+    ogPostRes.status === 200 && ogPostRes.headers.get('content-type') === 'image/png' &&
+    favRes.status === 200 && (favRes.headers.get('content-type') || '').includes('svg'),
+    `og=${ogBytes.length}B, postOg=${ogPostRes.status}, fav=${favRes.status}`
+  );
+
   const failed = results.filter(r => !r.ok).length;
   console.log(`\nTotal failures: ${failed}`);
   process.exit(failed ? 1 : 0);

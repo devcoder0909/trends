@@ -67,7 +67,8 @@ export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
   for (const p of posts) {
     const pub = new Date(p.updated_at || p.created_at).toUTCString();
     const desc = p.summary || p.body || '';
-    x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><pubDate>${pub}</pubDate><description>${esc(desc)}</description></item>`;
+    const cat = esc(p.category || 'News');
+    x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><category>${cat}</category><pubDate>${pub}</pubDate><description>${esc(desc)}</description><enclosure url="${siteUrl}/og/${esc(p.slug)}.png" type="image/png" length="3000"/></item>`;
   }
   return x + '</channel></rss>';
 }

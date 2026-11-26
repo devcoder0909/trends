@@ -6,15 +6,20 @@
  * - Grounds every post in >= 2 distinct news outlets, validates & fact-checks
  * - Tiered lifetime: 48h base, extended to 7 days on search-engine human traffic
  * - Full 7-day cleanup across topics, seen_topics, and rejected tables
- * - Programmatic SEO: BreadcrumbList, NewsArticle, ItemList, category hubs, IndexNow
+ * - Programmatic SEO: BreadcrumbList, NewsArticle, ItemList, SearchAction,
+ *   paginated hubs, OG PNGs, IndexNow, WebSub, and Google Indexing API v3
  */
 
 import { getSettings, isSensitive, normalizeHost, PREFERRED_CATEGORIES } from './config.js';
 import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics } from './rss.js';
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
-import { slugify, homePage, categoryPage, postPage, aboutPage, gonePage, endedPage } from './render.js';
+import {
+  PER_PAGE, BACK_SCRIPT_HASH, slugify,
+  homePage, categoryPage, searchPage, postPage, aboutPage, notFoundPage, gonePage, endedPage,
+} from './render.js';
 import { sitemapXml, newsSitemapXml, robotsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
+import { FAVICON_SVG, generateOgPng } from './og.js';
 
 const MAX_TOPICS_PER_TICK = 4; // stays well below Cloudflare's 50 subrequest limit
 
@@ -23,7 +28,7 @@ const todayStr = () => isoNow().slice(0, 10);
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
+  'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; script-src '${BACK_SCRIPT_HASH}'; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -78,6 +83,54 @@ export function isNearDuplicateTopic(candidateTopic, liveTopics = []) {
     if (candWords.length === 1 && existingWords.size === 1 && overlap === 1) return true;
   }
   return false;
+}
+
+/**
+ * Parameterized D1 search across title, topic, summary, body, sources, and related queries.
+ * Ranks exact/title matches highest before recency.
+ */
+async function searchLivePosts(db, nowIso, rawQuery, catSlug = '') {
+  const clean = String(rawQuery || '').trim();
+  const terms = clean.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 4);
+  if (!terms.length) return [];
+
+  const escLike = t => `%${t.replace(/[\\%_]/g, '\\$&')}%`;
+  const clauses = [];
+  const binds = [nowIso];
+
+  for (const t of terms) {
+    const pat = escLike(t);
+    clauses.push("(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(topic) LIKE ? ESCAPE '\\' OR LOWER(summary) LIKE ? ESCAPE '\\' OR LOWER(what_happened) LIKE ? ESCAPE '\\' OR LOWER(sources) LIKE ? ESCAPE '\\' OR LOWER(also_searched) LIKE ? ESCAPE '\\')");
+    binds.push(pat, pat, pat, pat, pat, pat);
+  }
+
+  const sql = `SELECT * FROM topics WHERE status = 'published' AND expires_at > ? AND ${clauses.join(' AND ')} ORDER BY created_at DESC LIMIT 150`;
+  let rows = (await db.prepare(sql).bind(...binds).all()).results || [];
+
+  if (catSlug) {
+    rows = rows.filter(r => slugify(r.category || 'News') === catSlug);
+  }
+
+  const phrase = clean.toLowerCase();
+  const scored = rows.map(r => {
+    const tLow = String(r.title || '').toLowerCase();
+    const topLow = String(r.topic || '').toLowerCase();
+    const srcLow = `${r.sources || ''} ${r.category || ''}`.toLowerCase();
+    const bodyLow = `${r.summary || ''} ${r.what_happened || ''} ${r.also_searched || ''}`.toLowerCase();
+    let score = 0;
+    if (tLow.includes(phrase)) score += 40;
+    if (topLow.includes(phrase)) score += 30;
+    for (const term of terms) {
+      if (tLow.includes(term)) score += 12;
+      if (topLow.includes(term)) score += 8;
+      if (srcLow.includes(term)) score += 5;
+      if (bodyLow.includes(term)) score += 2;
+    }
+    return { row: r, score, ts: Date.parse(r.created_at) || 0 };
+  });
+
+  scored.sort((a, b) => (b.score - a.score) || (b.ts - a.ts));
+  return scored.map(x => x.row);
 }
 
 /**
@@ -189,7 +242,10 @@ export async function handleScheduled(env) {
       promotedUrls.push(`${siteUrl}/p/${q.slug}`);
       count++;
     }
-    if (promotedUrls.length) await pingIndexNow(env, promotedUrls);
+    if (promotedUrls.length) {
+      await pingIndexNow(env, promotedUrls);
+      await pingGoogleIndexing(env, promotedUrls, 'URL_UPDATED');
+    }
   }
 
   // 4. Fetch Trends RSS across configured geos and collect new candidates
@@ -275,7 +331,6 @@ export async function handleScheduled(env) {
       continue;
     }
 
-    // Skip second LLM verifier pass on last topic if near subrequest ceiling to ensure safe execution
     const result = await generateAndValidatePost(
       env,
       { topic: item.title, sources: merged.items },
@@ -285,7 +340,6 @@ export async function handleScheduled(env) {
 
     if (!result.ok) {
       await logRejected(db, hash, item.title, item.geo, result.code, result.reason);
-      // Do NOT blacklist on transient infra errors so it retries on the next cron tick
       if (result.code !== 'infra_error') {
         await markSeen(db, hash, hash, now);
         await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
@@ -348,7 +402,8 @@ export async function handleFetch(request, env, ctx) {
     return Response.redirect(`https://${url.host}${url.pathname}${url.search}`, 301);
   }
 
-  const siteUrl = `https://${normalizeHost(env.SITE_HOST) || url.host}`;
+  const hostNorm = normalizeHost(env.SITE_HOST) || url.host;
+  const siteUrl = `https://${hostNorm}`;
   const path = url.pathname;
   const db = env.DB;
   const now = isoNow();
@@ -356,6 +411,16 @@ export async function handleFetch(request, env, ctx) {
 
   if (path === `/${env.INDEXNOW_KEY || '_'}.txt`) return textRes(env.INDEXNOW_KEY || '');
   if (path === '/robots.txt') return textRes(robotsTxt(siteUrl));
+
+  if (path === '/favicon.svg' || path === '/favicon.ico') {
+    return new Response(FAVICON_SVG, {
+      headers: {
+        'Content-Type': 'image/svg+xml;charset=utf-8',
+        'Cache-Control': 'public, max-age=86400',
+        ...SECURITY_HEADERS,
+      },
+    });
+  }
 
   const isSiteEnded = Boolean(env.SITE_END_AT && nowMs > Date.parse(env.SITE_END_AT));
   if (isSiteEnded) {
@@ -365,18 +430,38 @@ export async function handleFetch(request, env, ctx) {
     if (liveCount === 0) return htmlRes(endedPage(), 410, { 'X-Robots-Tag': 'noindex' });
   }
 
-  // Edge Cache API for GET requests (keeps D1 reads near zero under traffic spikes)
+  // Canonical query redirects for pagination (?page=1 -> /, ?page=N -> /page/N)
+  if (path === '/' && url.searchParams.has('page')) {
+    const qPage = Number.parseInt(url.searchParams.get('page') || '1', 10);
+    const dest = qPage > 1 ? `${siteUrl}/page/${qPage}` : `${siteUrl}/`;
+    return Response.redirect(dest, 301);
+  }
+  if (path === '/page/1' || path === '/page/1/') {
+    return Response.redirect(`${siteUrl}/`, 301);
+  }
+
+  // Edge Cache API for clean cacheable GET requests (never cache /search queries under path key)
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
-  const isCacheableGet = request.method === 'GET' && !isSiteEnded &&
-    (path === '/' || path === '/about' || path === '/sitemap.xml' || path === '/news-sitemap.xml' ||
-     path === '/rss.xml' || path.startsWith('/c/') || path.startsWith('/p/'));
+  const isCacheableGet = request.method === 'GET' && !isSiteEnded && (
+    (path === '/' && !url.searchParams.has('page')) ||
+    path.startsWith('/page/') ||
+    path === '/about' ||
+    path === '/sitemap.xml' ||
+    path === '/news-sitemap.xml' ||
+    path === '/rss.xml' ||
+    path === '/og.png' ||
+    path.startsWith('/og/') ||
+    (path.startsWith('/c/') && !url.searchParams.has('page')) ||
+    path.startsWith('/p/')
+  );
   const cacheKey = isCacheableGet ? new Request(`https://${url.host}${path}`, { method: 'GET' }) : null;
 
   if (edgeCache && cacheKey) {
     const cached = await edgeCache.match(cacheKey);
     if (cached) {
-      if ((path === '/' || path.startsWith('/p/')) && shouldCountSearchHit(request) && ctx?.waitUntil) {
-        const slug = path === '/' ? null : path.slice(3).replace(/\/+$/, '');
+      if ((path === '/' || path.startsWith('/page/') || path.startsWith('/c/') || path.startsWith('/p/')) &&
+          shouldCountSearchHit(request) && ctx?.waitUntil) {
+        const slug = path.startsWith('/p/') ? path.slice(3).replace(/\/+$/, '') : null;
         ctx.waitUntil(recordSearchHit(db, slug, now));
       }
       return cached;
@@ -390,6 +475,30 @@ export async function handleFetch(request, env, ctx) {
     return res;
   };
 
+  if (path === '/og.png') {
+    const png = await generateOgPng({ siteName: settings.siteName, host: hostNorm });
+    return cacheAndReturn(new Response(png, {
+      headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, s-maxage=86400, max-age=3600', ...SECURITY_HEADERS },
+    }));
+  }
+
+  const ogPostMatch = path.match(/^\/og\/([a-z0-9-]+)\.png$/i);
+  if (ogPostMatch) {
+    const slug = ogPostMatch[1].toLowerCase();
+    const post = await db.prepare(
+      "SELECT title, category FROM topics WHERE slug = ? AND status = 'published' AND expires_at > ?"
+    ).bind(slug, now).first();
+    const png = await generateOgPng({
+      title: post ? post.title : 'Live Factual Trend Briefings',
+      category: post ? post.category : 'Top Stories',
+      siteName: settings.siteName,
+      host: hostNorm,
+    });
+    return cacheAndReturn(new Response(png, {
+      headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, s-maxage=3600, max-age=600', ...SECURITY_HEADERS },
+    }));
+  }
+
   if (path === '/about') return cacheAndReturn(htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS));
 
   const live = async () => (await db.prepare(
@@ -400,32 +509,76 @@ export async function handleFetch(request, env, ctx) {
   if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await live(), siteUrl, settings.siteName, nowMs)));
   if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await live(), siteUrl, settings.siteName)));
 
-  // Home page — all live posts in full, cached 60s at edge
-  if (path === '/') {
+  // Home page (page 1) and paginated home (/page/2, /page/3, ...)
+  const homePageMatch = path === '/' ? [null, '1'] : path.match(/^\/page\/(\d+)\/?$/);
+  if (homePageMatch) {
+    const pageNum = Number.parseInt(homePageMatch[1], 10);
+    if (!Number.isFinite(pageNum) || pageNum < 1) return Response.redirect(`${siteUrl}/`, 301);
+
+    const posts = await live();
+    const totalPages = Math.max(1, Math.ceil(posts.length / PER_PAGE));
+    if (pageNum > totalPages) {
+      return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
+    }
+
     if (shouldCountSearchHit(request) && ctx?.waitUntil) {
       ctx.waitUntil(recordSearchHit(db, null, now));
     }
-    const posts = await live();
     const lastMod = posts[0] ? new Date(posts[0].updated_at || posts[0].created_at).toUTCString() : new Date(nowMs).toUTCString();
-    return cacheAndReturn(htmlRes(homePage(posts, settings, siteUrl, nowMs), 200, {
+    return cacheAndReturn(htmlRes(homePage(posts, settings, siteUrl, nowMs, pageNum), 200, {
       ...SEO_INDEX_HEADERS,
       'Last-Modified': lastMod,
     }));
   }
 
-  // Category hub pages (/c/{category}) for clean BreadcrumbList & hub-and-spoke SEO
-  if (path.startsWith('/c/')) {
-    const catSlug = path.slice(3).replace(/\/+$/, '').toLowerCase();
+  // Category hub pages (/c/{category} & /c/{category}/page/{n})
+  const catMatch = path.match(/^\/c\/([a-z0-9-]+)(?:\/page\/(\d+))?\/?$/i);
+  if (catMatch) {
+    const catSlug = catMatch[1].toLowerCase();
+    if (url.searchParams.has('page')) {
+      const qPage = Number.parseInt(url.searchParams.get('page') || '1', 10);
+      return Response.redirect(qPage > 1 ? `${siteUrl}/c/${catSlug}/page/${qPage}` : `${siteUrl}/c/${catSlug}`, 301);
+    }
+    if (catMatch[2] === '1' || catMatch[2] === '0') {
+      return Response.redirect(`${siteUrl}/c/${catSlug}`, 301);
+    }
+
     const knownNames = [...PREFERRED_CATEGORIES, 'News'];
     const catName = knownNames.find(c => slugify(c) === catSlug);
-    if (!catName) return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
+    if (!catName) {
+      return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
+    }
 
     const allLive = await live();
     const filtered = allLive.filter(p => slugify(p.category || 'News') === catSlug);
+    const pageNum = catMatch[2] ? Number.parseInt(catMatch[2], 10) : 1;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+    if (pageNum > totalPages) {
+      return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
+    }
+
+    if (shouldCountSearchHit(request) && ctx?.waitUntil) {
+      ctx.waitUntil(recordSearchHit(db, null, now));
+    }
     const headers = filtered.length
       ? SEO_INDEX_HEADERS
       : { ...SECURITY_HEADERS, 'Cache-Control': 'public, s-maxage=60, max-age=30', 'X-Robots-Tag': 'noindex, follow' };
-    return cacheAndReturn(htmlRes(categoryPage(catName, filtered, settings, siteUrl, nowMs), 200, headers));
+    return cacheAndReturn(htmlRes(categoryPage(catName, filtered, settings, siteUrl, nowMs, pageNum), 200, headers));
+  }
+
+  // Live search endpoint (/search?q=...&cat=...&page=...)
+  if (path === '/search' || path === '/search/') {
+    const query = (url.searchParams.get('q') || '').trim().slice(0, 120);
+    const cat = slugify(url.searchParams.get('cat') || '');
+    const page = Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1);
+    const allLive = await live();
+    const results = query
+      ? await searchLivePosts(db, now, query, cat)
+      : (cat ? allLive.filter(p => slugify(p.category || 'News') === cat) : []);
+    return htmlRes(searchPage({ query, cat, page, results, allLive }, settings, siteUrl, nowMs), 200, {
+      'Cache-Control': 'private, no-store',
+      'X-Robots-Tag': 'noindex, follow',
+    });
   }
 
   // Individual post page
@@ -452,10 +605,10 @@ export async function handleFetch(request, env, ctx) {
     }
 
     const wasSeen = await db.prepare('SELECT 1 FROM seen_topics WHERE slug = ?').bind(slug).first();
-    return htmlRes(gonePage(), (wasSeen || isSiteEnded) ? 410 : 404, { 'X-Robots-Tag': 'noindex, follow' });
+    return htmlRes(gonePage(siteUrl), (wasSeen || isSiteEnded) ? 410 : 404, { 'X-Robots-Tag': 'noindex, follow' });
   }
 
-  return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
+  return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
 }
 
 // ══════════════════════════════════════════════════════════════
