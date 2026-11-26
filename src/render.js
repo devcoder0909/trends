@@ -17,8 +17,8 @@ export const slugify = s =>
     .replace(/^-|-$/g, '')
     .slice(0, 80);
 
-// Inline CSS (< 1.5KB) — clean editorial layout, 680px, 18px/1.6, dark mode
-export const CSS = `*{margin:0;padding:0;box-sizing:border-box}body{font:18px/1.6 system-ui,sans-serif;max-width:680px;margin:0 auto;padding:1.2rem 1rem 2rem;color:#111;background:#fff}header{border-bottom:2px solid #111;padding-bottom:.7rem;margin-bottom:1.2rem}.brand{font-size:1.35rem;font-weight:700;color:inherit;text-decoration:none}.sub,.meta,.s{color:#555;font-size:.86rem}.nav{display:flex;flex-wrap:wrap;gap:.45rem .85rem;margin-top:.5rem;font-size:.82rem}.nav a,.kicker{text-decoration:none}.nav a{color:#444}h1{font-size:1.55rem;line-height:1.25;margin:.35rem 0 .5rem}h2{font-size:1.2rem;line-height:1.3;margin:.25rem 0 .35rem}h2.sec{font-size:.92rem;text-transform:uppercase;letter-spacing:.04em;color:#555;margin:1.2rem 0 .3rem}p{margin:.6rem 0}ul{padding-left:1.2rem;margin:.5rem 0}li{margin:.3rem 0}a,.kicker{color:#0f4c81}.kicker{font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}.sum{font-weight:600;border-left:3px solid #0f4c81;padding-left:.7rem}.upd{border-left:3px solid #b45309;padding-left:.7rem;font-size:.95rem}article{margin:1.3rem 0;padding-bottom:1.2rem;border-bottom:1px solid #e5e5e5}footer{margin-top:2rem;padding-top:1rem;border-top:1px solid #e5e5e5;font-size:.82rem;color:#555}@media(prefers-color-scheme:dark){body{background:#111;color:#eaeaea}header{border-color:#444}a,.kicker{color:#7dd3fc}.sub,.meta,.s,.nav a,h2.sec,footer{color:#aaa}.sum{border-color:#7dd3fc}article,footer{border-color:#2a2a2a}}`;
+// Inline CSS (< 1.5KB) — Google News-inspired clean white theme, 700px, 18px/1.6
+export const CSS = `*{margin:0;padding:0;box-sizing:border-box}html{color-scheme:light}body{font:18px/1.6 system-ui,sans-serif;max-width:700px;margin:0 auto;padding:1rem 1rem 2rem;color:#202124;background:#f6f8fc}header,article,nav{background:#fff;border:1px solid #dadce0;border-radius:12px;padding:1rem 1.2rem;margin:0 0 1rem}.brand{font-size:1.35rem;font-weight:700;color:#202124;text-decoration:none}.sub,.meta,.s{color:#5f6368;font-size:.85rem}.nav{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem;font-size:.82rem}.nav a{color:#3c4043;background:#f1f3f4;padding:.15rem .6rem;border-radius:16px;text-decoration:none}.nav a:hover{background:#e8f0fe;color:#1967d2}h1{font-size:1.55rem;line-height:1.25;margin:.3rem 0 .5rem}h2{font-size:1.2rem;line-height:1.32;margin:.25rem 0 .4rem}h2.sec{font-size:.88rem;text-transform:uppercase;letter-spacing:.04em;color:#5f6368;margin:1.1rem 0 .3rem}p{margin:.6rem 0}ul{padding-left:1.2rem;margin:.5rem 0}li{margin:.3rem 0}a{color:#1a73e8;text-decoration:none}a:hover{text-decoration:underline}h2 a,nav li a{color:#202124}h2 a:hover{color:#1a73e8}.kicker{font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#1a73e8}.sum{font-weight:500;background:#f8fafe;border-left:3px solid #1a73e8;padding:.5rem .75rem;border-radius:0 8px 8px 0}.upd{border-left:3px solid #e37400;padding-left:.7rem;font-size:.95rem}footer{margin-top:1.4rem;padding-top:1rem;border-top:1px solid #dadce0;font-size:.82rem;color:#5f6368}`;
 
 export function timeAgo(iso, nowMs = Date.now()) {
   const diffSec = Math.max(0, Math.floor((nowMs - Date.parse(iso)) / 1000));
@@ -58,13 +58,13 @@ function hreflangLinks(canon, geos = []) {
 }
 
 function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article') {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${canon}">${hreflangLinks(canon, geos)}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${canon}"><meta property="og:type" content="${ogType}"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}"><link rel="canonical" href="${canon}">${hreflangLinks(canon, geos)}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}"><meta property="og:url" content="${canon}"><meta property="og:type" content="${ogType}"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
 function siteHeader(siteName, isHome = false) {
   const cats = ['Sports', 'Tech', 'Entertainment', 'Business', 'Science', 'Weather', 'Gaming'];
   const navLinks = `<a href="/">All</a>` + cats.map(c => `<a href="/c/${slugify(c)}">${c}</a>`).join('');
-  return `<header><a class="brand" href="/">${esc(siteName)}</a>${isHome ? '<p class="sub">Real-time factual briefings on what is trending now.</p>' : ''}<nav class="nav" aria-label="Categories">${navLinks}</nav></header>`;
+  return `<header><a class="brand" href="/">${esc(siteName)}</a>${isHome ? '<p class="sub">Real-time factual briefings on what is trending now.</p>' : ''}<div class="nav" role="navigation" aria-label="Categories">${navLinks}</div></header>`;
 }
 
 function htmlFoot(email) {
@@ -177,7 +177,7 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now()) {
     `<script type="application/ld+json">${ld}</script>`,
     'website'
   );
-  h += siteHeader(settings.siteName, true) + '<main><h1 style="font-size:1.1rem;color:#52525b;margin-bottom:.75rem">Latest Trending Briefings</h1>';
+  h += siteHeader(settings.siteName, true) + '<main><h1 style="font-size:1.05rem;color:#5f6368;margin:0 0 .75rem .2rem">Top Briefings</h1>';
 
   for (const p of posts) {
     const cat = p.category || 'News';
