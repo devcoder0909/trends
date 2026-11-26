@@ -19,6 +19,7 @@ import {
   homePage, categoryPage, searchPage, postPage, aboutPage, notFoundPage, gonePage, endedPage,
 } from './render.js';
 import { sitemapXml, newsSitemapXml, robotsTxt, llmsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
+import { publishToSocial } from './social.js';
 import { FAVICON_SVG, generateOgPng } from './og.js';
 
 const MAX_TOPICS_PER_TICK = 3; // balanced throughput well below Cloudflare's 50-subrequest limit
@@ -278,6 +279,7 @@ export async function handleScheduled(env) {
   const shouldFetchNew = settings.devMode || count < settings.maxDaily || queuedLeft < 5;
 
   const newUrls = [];
+  const publishedPosts = [];
   const touchedCats = new Set();
 
   if (shouldFetchNew) {
@@ -455,6 +457,7 @@ export async function handleScheduled(env) {
           const catPath = `/c/${slugify(post.category || 'News')}`;
           touchedCats.add(catPath);
           newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
+          publishedPosts.push({ slug: hash, title: post.title, summary: post.summary, category: post.category, topic: item.title });
           count++;
         }
       } catch { /* duplicate slug — skip gracefully */ }
@@ -472,6 +475,7 @@ export async function handleScheduled(env) {
       pingIndexNow(env, indexNowBatch),
       pingWebSub(env, siteUrl),
       pingGoogleIndexing(env, postPings, 'URL_UPDATED'),
+      publishToSocial(env, publishedPosts, siteUrl, budget),
       purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths]),
     ]);
   }

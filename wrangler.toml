@@ -31,5 +31,16 @@ EXTEND_MIN_HITS    = "1"                               # search-engine human vis
 # DEV_MODE         = "true"                            # uncomment for local testing with mock RSS
 
 # Secrets (set via CLI, not here):
-#   npx wrangler secret put GEMINI_API_KEY
-#   npx wrangler secret put GOOGLE_INDEXING_KEY   # optional Google Indexing API v3 service account JSON
+#   npx wrangler secret put GEMINI_API_KEY        # Google AI Studio free tier (recommended primary)
+#   npx wrangler secret put NVIDIA_API_KEY        # optional build.nvidia.com free endpoint
+#   npx wrangler secret put MISTRAL_API_KEY       # optional console.mistral.ai free Experiment tier
+#   npx wrangler secret put OPENROUTER_API_KEY    # optional openrouter.ai :free models
+#   npx wrangler secret put CEREBRAS_API_KEY      # optional Cerebras free endpoint
+#   npx wrangler secret put CUSTOM_AI_URL         # optional custom OpenAI-compatible chat URL (+ CUSTOM_AI_KEY, CUSTOM_AI_MODEL)
+#   npx wrangler secret put GOOGLE_INDEXING_KEY   # Google Indexing API v3 service account JSON
+#   Free Social Auto-Publish Secrets (optional, 0 budget):
+#   npx wrangler secret put BLUESKY_HANDLE        # (+ BLUESKY_APP_PASSWORD)
+#   npx wrangler secret put TELEGRAM_BOT_TOKEN    # (+ TELEGRAM_CHANNEL_ID e.g. @yourchannel)
+#   npx wrangler secret put MASTODON_INSTANCE     # e.g. https://mastodon.social (+ MASTODON_TOKEN)
+#   npx wrangler secret put DISCORD_WEBHOOK_URL   # Discord channel webhook
+#   npx wrangler secret put SOCIAL_WEBHOOK_URL    # Generic JSON webhook (n8n, Make, etc.)

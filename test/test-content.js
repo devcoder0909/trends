@@ -6,6 +6,7 @@
  */
 
 import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
+import { formatSocialPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
 import { formatDisplayTopic } from '../src/config.js';
 import { rankTopics } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
@@ -304,6 +305,92 @@ async function run() {
     console.log('[PASS] Workers AI 4006 daily quota circuit breaker stops wasted subrequests');
   }
   __resetAiCooldowns();
+
+  // Verify OpenAI-compatible additional free AI endpoint routing (e.g. NVIDIA NIM) + 429 cooldown failover
+  const origFetch = globalThis.fetch;
+  const hitUrls = [];
+  try {
+    globalThis.fetch = async (url, init) => {
+      hitUrls.push(String(url));
+      if (String(url).includes('nvidia.com')) {
+        return new Response('rate limit', { status: 429 });
+      }
+      if (String(url).includes('mistral.ai')) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, did: 'did:plc:test', accessJwt: 'jwt123' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const aiOut = await callLLM({ NVIDIA_API_KEY: 'nv-test', MISTRAL_API_KEY: 'ms-test' }, 'test');
+    const aiOut2 = await callLLM({ NVIDIA_API_KEY: 'nv-test', MISTRAL_API_KEY: 'ms-test' }, 'test2');
+    const nvidiaCalls = hitUrls.filter(u => u.includes('nvidia.com')).length;
+    const mistralCalls = hitUrls.filter(u => u.includes('mistral.ai')).length;
+    if (aiOut !== '{"ok":true}' || aiOut2 !== '{"ok":true}' || nvidiaCalls !== 1 || mistralCalls !== 2) {
+      console.error(`[FAIL] OpenAI-compat routing/cooldown unexpected: nv=${nvidiaCalls}, ms=${mistralCalls}`);
+      failures++;
+    } else {
+      console.log('[PASS] NVIDIA/Mistral OpenAI-compat free routing & 429 cooldown failover verified');
+    }
+
+    // Verify zero-budget social formatting, Bluesky facets, Telegram/Mastodon/Discord/Webhook/X publishing
+    __resetSocialState();
+    const longFormatted = formatSocialPost({
+      slug: 'arsenal-vs-chelsea',
+      title: 'Arsenal vs Chelsea Match Result and Latest Score With Extra Long Text',
+      summary: 'A'.repeat(280),
+      category: 'Sports',
+      topic: 'arsenal vs chelsea',
+    }, 'https://trends.example.com', 280);
+    if (!longFormatted.text.endsWith('https://trends.example.com/p/arsenal-vs-chelsea') || longFormatted.text.length > 280) {
+      console.error('[FAIL] formatSocialPost exceeded limit or clipped URL');
+      failures++;
+    } else {
+      console.log('[PASS] formatSocialPost preserves URL within 280-char limit');
+    }
+
+    const socialRequests = [];
+    globalThis.fetch = async (url, init) => {
+      socialRequests.push({ url: String(url), headers: init?.headers || {}, body: init?.body });
+      return new Response(JSON.stringify({ did: 'did:plc:test', accessJwt: 'jwt-bsky' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    const oauthSig = await signOAuth1Header('POST', 'https://api.x.com/2/tweets', {
+      consumerKey: 'ck', consumerSecret: 'cs', accessToken: 'at', accessSecret: 'as',
+    });
+    const pubResults = await publishToSocial({
+      BLUESKY_HANDLE: 'trends.bsky.social',
+      BLUESKY_APP_PASSWORD: 'app-pw',
+      TELEGRAM_BOT_TOKEN: '123:abc',
+      TELEGRAM_CHANNEL_ID: '@trends_ch',
+      MASTODON_INSTANCE: 'https://mastodon.social',
+      MASTODON_TOKEN: 'm-tok',
+      DISCORD_WEBHOOK_URL: 'https://discord.com/api/webhooks/1/a',
+      SOCIAL_WEBHOOK_URL: 'https://hooks.example.com/social',
+      X_CONSUMER_KEY: 'ck',
+      X_CONSUMER_SECRET: 'cs',
+      X_ACCESS_TOKEN: 'at',
+      X_ACCESS_SECRET: 'as',
+    }, [{ slug: 'arsenal-vs-chelsea', title: 'Arsenal vs Chelsea', summary: 'Summary line.', category: 'Sports', topic: 'arsenal vs chelsea' }], 'https://trends.example.com', null, { force: true });
+    const allOk = pubResults.length === 6 && pubResults.every(r => r.ok);
+    const hasFacet = socialRequests.some(r => r.url.includes('createRecord') && String(r.body).includes('app.bsky.richtext.facet#link'));
+    if (!allOk || !hasFacet || !oauthSig.startsWith('OAuth ')) {
+      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}`);
+      failures++;
+    } else {
+      console.log('[PASS] Multi-platform zero-budget social publish (Bluesky, Telegram, Mastodon, Discord, Webhook, X) verified');
+    }
+  } finally {
+    globalThis.fetch = origFetch;
+    __resetAiCooldowns();
+    __resetSocialState();
+  }
 
   console.log(`\nTotal failures: ${failures}`);
   process.exit(failures ? 1 : 0);

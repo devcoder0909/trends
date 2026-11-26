@@ -27,6 +27,7 @@ let cachedGeminiModelList = null;
 let cachedGeminiListExp = 0;
 let workersAiBlockedUntil = 0;
 const geminiBlockedUntil = new Map();
+const openaiBlockedUntil = new Map();
 
 const nextUtcMidnightMs = (nowMs = Date.now()) => {
   const d = new Date(nowMs);
@@ -40,6 +41,7 @@ export function __resetAiCooldowns() {
   cachedGeminiListExp = 0;
   workersAiBlockedUntil = 0;
   geminiBlockedUntil.clear();
+  openaiBlockedUntil.clear();
 }
 
 const MONTH_NAMES = [
@@ -421,14 +423,57 @@ async function discoverGeminiModels(env) {
 
 /**
  * Smart free-tier router:
- * 1. Gemini Free (1,000 RPD on Flash-Lite, 0 Workers AI Neurons) when GEMINI_API_KEY is configured
- * 2. Lightweight quantized Workers AI (@cf/meta/llama-3.1-8b-instruct-fp8-fast / 3.2-3b) within 10k Neurons/day
- * 3. Isolate quota circuit-breakers prevent retrying exhausted providers
+ * 1. Gemini Free (1,000 RPD on Flash-Lite, 0 Workers AI Neurons)
+ * 2. Optional Free OpenAI-Compatible Endpoints (NVIDIA NIM, Mistral Free, OpenRouter :free, Cerebras, Custom URL)
+ * 3. Lightweight quantized Workers AI (@cf/meta/llama-3.1-8b-instruct-fp8-fast / 3.2-3b) within 10k Neurons/day
+ * 4. Isolate quota circuit-breakers prevent retrying exhausted providers
  */
 export async function callLLM(env, prompt, budget = null) {
   const errors = [];
   const nowMs = Date.now();
   const canCall = () => !budget || budget.remaining() > 0;
+
+  const tryOpenAICompatible = async (name, endpoint, apiKey, model, extraHeaders = {}) => {
+    if (!apiKey || !endpoint || !canCall()) return null;
+    if ((openaiBlockedUntil.get(name) || 0) > nowMs) return null;
+    if (budget) budget.spend(1);
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+          ...extraHeaders,
+        },
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined,
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.2,
+          max_tokens: 520,
+        }),
+      });
+      if (!res.ok) {
+        errors.push(`${name} ${model}: HTTP ${res.status}`);
+        if ([401, 402, 403, 404, 429].includes(res.status)) {
+          openaiBlockedUntil.set(name, nowMs + (res.status === 429 ? 15 * 60_000 : 6 * 3600_000));
+        }
+        return null;
+      }
+      const json = await res.json();
+      const text = json.choices?.[0]?.message?.content || '';
+      if (text) return text;
+      errors.push(`${name} ${model}: empty text`);
+    } catch (err) {
+      errors.push(`${name} ${model}: ${err.message}`);
+      if (/too many subrequests/i.test(err.message)) {
+        const fatal = new Error(errors.join('; '));
+        fatal.fatalSubrequest = true;
+        throw fatal;
+      }
+    }
+    return null;
+  };
 
   const tryGemini = async () => {
     if (!env.GEMINI_API_KEY || !canCall()) return null;
@@ -526,9 +571,21 @@ export async function callLLM(env, prompt, budget = null) {
     return null;
   };
 
-  // Prefer Gemini Free first when configured (saves Workers AI 10k Neurons/day), then light Workers AI
+  // Prefer Gemini Free first, then optional OpenAI-compatible free providers, then light Workers AI
   const primaryText = await tryGemini();
   if (primaryText) return primaryText;
+
+  const extraProviders = [
+    ['nvidia', 'https://integrate.api.nvidia.com/v1/chat/completions', env.NVIDIA_API_KEY, env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct'],
+    ['mistral', 'https://api.mistral.ai/v1/chat/completions', env.MISTRAL_API_KEY, env.MISTRAL_MODEL || 'mistral-small-latest'],
+    ['openrouter', 'https://openrouter.ai/api/v1/chat/completions', env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL || 'openrouter/free', { 'X-Title': 'Trending Now' }],
+    ['cerebras', 'https://api.cerebras.ai/v1/chat/completions', env.CEREBRAS_API_KEY, env.CEREBRAS_MODEL || 'llama3.1-8b'],
+    ['custom', env.CUSTOM_AI_URL, env.CUSTOM_AI_KEY, env.CUSTOM_AI_MODEL || 'gpt-4o-mini'],
+  ];
+  for (const [name, url, key, model, headers] of extraProviders) {
+    const out = await tryOpenAICompatible(name, url, key, model, headers);
+    if (out) return out;
+  }
 
   const aiText = await tryWorkersAi();
   if (aiText) return aiText;
