@@ -8,10 +8,10 @@ import { BANNED_PHRASES, classifyCategory, isSensitive, findSensitiveMatch } fro
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 
 const WORKERS_AI_MODELS = [
-  '@cf/meta/llama-3.1-8b-instruct-fast',
   '@cf/meta/llama-4-scout-17b-16e-instruct',
   '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/google/gemma-4-26b-a4b-it',
+  '@cf/meta/llama-3.1-8b-instruct-fast',
 ];
 
 const GEMINI_FALLBACK_MODELS = [
@@ -60,7 +60,7 @@ export const countWords = text =>
 
 function countSentences(text) {
   const cleaned = String(text || '')
-    .replace(/\b(?:U\.S|U\.K|Dr|Mr|Mrs|Ms|St|vs|No|Jan|Feb|Mar|Apr|Aug|Sep|Sept|Oct|Nov|Dec)\./gi, '$1')
+    .replace(/\b(?:U\.S\.A|U\.S|U\.K|Dr|Mr|Mrs|Ms|St|Jr|Sr|Inc|Co|Corp|Ltd|vs|No|a\.m|p\.m|e\.g|i\.e|Jan|Feb|Mar|Apr|Aug|Sep|Sept|Oct|Nov|Dec)\./gi, '$1')
     .replace(/(\d)\.(\d)/g, '$1$2');
   const parts = cleaned.split(/[.!?]+(?:\s+|$)/).map(s => s.trim()).filter(Boolean);
   return parts.length;
@@ -258,7 +258,7 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
 
 export function buildWriterPrompt(topic, category, sources, feedback = '') {
   const formattedSources = sources
-    .slice(0, 8)
+    .slice(0, 10)
     .map(s => {
       const time = s.pubDate ? ` | ${s.pubDate}` : '';
       const snip = s.snippet ? ` — ${s.snippet}` : '';
@@ -266,9 +266,11 @@ export function buildWriterPrompt(topic, category, sources, feedback = '') {
     })
     .join('\n');
 
-  const feedbackBlock = feedback ? `\nIMPORTANT FIX FOR RETRY: Previous draft was rejected because: ${feedback}\n` : '';
+  const feedbackBlock = feedback
+    ? `\nIMPORTANT FIX FOR RETRY: Previous draft failed validation because: ${feedback}. Fix this exact issue (remove unprinted numbers, expand/trim to 180-220 words, keep title <= 55 chars, keep summary to 1 sentence, and end every bullet with [Outlet Name]).\n`
+    : '';
 
-  return `You are a neutral news editor writing a factual summary for "${topic}" (category: ${category}).
+  return `You are a neutral news editor writing a factual briefing for "${topic}" (category: ${category}).
 Use ONLY facts, names, dates, and numbers explicitly present in SOURCES below. NEVER invent facts, stats, ages, or details.
 
 SOURCES:
@@ -279,17 +281,17 @@ WRITING RULES:
 2. Do NOT mention being an AI. Do NOT use "shocking", "you won't believe", or "breaking" (unless "breaking" is in SOURCES).
 3. Define who or what "${topic}" is in the first sentence of what_happened (full name + role, or clarify which meaning applies).
 4. Use exact dates, times, and numbers from SOURCES. If details are unconfirmed or sources differ, write "reported but not confirmed".
-5. Target 185 to 225 words total across summary + what_happened + why_trending + key_facts + what_to_know_next (must stay strictly within 150-250 words).
+5. Target 185 to 225 words total across summary + what_happened + why_trending + key_facts + what_to_know_next (MUST be 150-250 words — write 4 detailed key_facts bullets so it easily clears 175 words).
 6. EVERY bullet in key_facts MUST end with the source outlet name inside square brackets, like: "Team A won 2-1 in London [ESPN]."
 
 OUTPUT ONLY VALID JSON (no markdown fences):
 {
-  "title": "<STRICTLY under 58 chars, plain language, includes ${topic} and search intent>",
+  "title": "<STRICTLY under 56 chars, plain language, includes ${topic} and search intent>",
   "category": "${category}",
   "summary": "<ONE single sentence, 20-28 words, directly answering what happened>",
-  "what_happened": "<2-3 short sentences (55-75 words) covering who, what, when, where>",
-  "why_trending": "<1-2 sentences (30-45 words) explaining why people are searching now>",
-  "key_facts": ["<single verifiable fact [Outlet Name]>", "<fact 2 [Outlet Name]>", "<fact 3 [Outlet Name]>"],
+  "what_happened": "<3 short sentences (60-80 words) covering who, what, when, where>",
+  "why_trending": "<2 sentences (35-45 words) explaining why people are searching now>",
+  "key_facts": ["<fact 1 [Outlet Name]>", "<fact 2 [Outlet Name]>", "<fact 3 [Outlet Name]>", "<fact 4 [Outlet Name]>"],
   "what_to_know_next": "<1-2 sentences (25-40 words) on upcoming date, next step, or what remains unconfirmed>",
   "also_searched": ["<related phrase 1 from sources>", "<related phrase 2>", "<related phrase 3>"]
 }`;

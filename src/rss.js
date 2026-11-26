@@ -125,7 +125,7 @@ export async function fetchGoogleNews(topic) {
     const res = await fetch(url, { headers: { 'User-Agent': 'TrendBot/1.0' } });
     if (!res.ok) return [];
     const xml = await res.text();
-    return parseGoogleNewsRSS(xml, 8);
+    return parseGoogleNewsRSS(xml, 10);
   } catch {
     return [];
   }
