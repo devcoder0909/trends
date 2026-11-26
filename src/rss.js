@@ -107,8 +107,9 @@ export function parseGoogleNewsRSS(xml, limit = 8) {
 
     const rawDesc = stripHtml(xmlTag(block, 'description'));
     const snippet = rawDesc && !rawDesc.toLowerCase().startsWith(title.toLowerCase()) ? rawDesc : '';
+    const isStreamSpam = /\[free!*\]|\bfree\s+live\s+stream\b|\breddit\s+streams?\b|\bwatch\s+online\s+free\b/i.test(title);
 
-    if (title && source) {
+    if (title && source && !isStreamSpam) {
       items.push({ title, snippet, source, url: link, pubDate });
     }
   }

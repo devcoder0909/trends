@@ -19,6 +19,10 @@ export const esc = s => String(s || '')
 
 export const slugify = s =>
   String(s || '')
+    .replace(/ø/gi, 'o')
+    .replace(/æ/gi, 'ae')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/['’]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
@@ -26,7 +30,7 @@ export const slugify = s =>
     .slice(0, 80);
 
 // Inline CSS (< 1.5KB) — Google News dark theme (#202124 / #292a2d / #8ab4f8 / #81c995)
-export const CSS = `*{margin:0;padding:0}body{font:14px/1.45 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}.k{color:#81c995}p,ul{color:#bdc1c6}p,ul,h1{margin:4px 0}a{text-decoration:none}h1,h2,.b,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px;margin:9px 0 4px}ul{padding-left:16px}header{border-bottom:1px solid #3c4043}.w{max-width:840px;margin:0 auto;padding:8px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 20em;padding:2px 3px 2px 10px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto;scrollbar-width:none}.t a{white-space:nowrap;padding:7px 0;border-bottom:3px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#8ab4f8}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:4px 10px;background:#303134;border-radius:99px}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:10px;margin:8px 0}.c,img{border-radius:10px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:12px}.g{grid-template-columns:1fr 1fr}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 12px}h1{font-size:21px}}`;
+export const CSS = `*{margin:0;padding:0}body{font:14px/1.4 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}.k{color:#81c995}p,ul{color:#bdc1c6}p,ul,h1,h2,img{margin:0 0 5px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}header{border-bottom:1px solid #3c4043}.w{max-width:840px;margin:auto;padding:8px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 20em;padding:2px 2px 2px 8px}button{font:inherit}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#8ab4f8}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:4px 9px;background:#303134;border-radius:9em}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:9px;margin:8px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:12px}.g{grid-template-columns:1fr 1fr}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 11px}h1{font-size:21px}}`;
 
 export const BACK_SCRIPT = `document.querySelectorAll('[data-bk]').forEach(function(a){a.addEventListener('click',function(e){try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){e.preventDefault();history.back()}}catch(x){}})})`;
 export const BACK_SCRIPT_HASH = 'sha256-gYnBAx/IGgY222gaMwV06vj32azHtsaxP2c3Mm8K7EY=';
@@ -121,12 +125,12 @@ const LOGO_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="t
 function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
   const parts = String(siteName || 'Trending Now').trim().split(/\s+/);
   const brandHtml = parts.length > 1
-    ? `${LOGO_SVG}<span><b>${esc(parts[0])}</b> ${esc(parts.slice(1).join(' '))}</span>`
-    : `${LOGO_SVG}<span><b>${esc(siteName)}</b></span>`;
+    ? `<b>${esc(parts[0])}</b> ${esc(parts.slice(1).join(' '))}`
+    : `<b>${esc(siteName)}</b>`;
   const tab = (slug, label, href) =>
     `<a${activeTab === slug ? ' class="on"' : ''} href="${href}">${label}</a>`;
   const navLinks = tab('home', 'Home', '/') + NAV_CATEGORIES.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
-  return `<header><div class="w h"><div class="f"><a class="b f" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
+  return `<header><div class="w h"><div class="f"><a class="b" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
 }
 
 function htmlFoot(email) {
@@ -203,7 +207,8 @@ function renderSourcesList(post, linkOut = true) {
   if (sourceObjs.length && linkOut) {
     const items = sourceObjs
       .map(s => {
-        const label = s.title ? `${esc(s.name)} — ${esc(s.title)}` : esc(s.name);
+        const cleanTitle = stripInlineSourceTags(s.title || '', post.sources);
+        const label = cleanTitle ? `${esc(s.name)} — ${esc(cleanTitle)}` : esc(s.name);
         return s.url
           ? `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${label}</a></li>`
           : `<li>${label}</li>`;
@@ -246,10 +251,10 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
     right += '<p class="m"><strong>Key facts &amp; perspectives</strong></p><ul>' +
       keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul>';
   }
-  const relatedHtml = alsoMatches.length
-    ? `<span class="m"><strong>Related:</strong> ${alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ')}</span>`
-    : `<a class="m" href="/c/${esc(catSlug)}">More ${esc(cat)} &rarr;</a>`;
-  right += `<div class="f j">${relatedHtml}<a class="bt" href="/p/${esc(p.slug)}">Full briefing &rarr;</a></div>`;
+  if (alsoMatches.length) {
+    right += `<p class="m"><strong>Related:</strong> ${alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ')}</p>`;
+  }
+  right += `<div class="f j"><a class="k m" href="/c/${esc(catSlug)}">All ${esc(cat)} &rarr;</a><a class="bt" href="/p/${esc(p.slug)}">Full briefing &rarr;</a></div>`;
 
   return `<article class="c" id="${esc(p.slug)}"><div class="r"><div>${left}</div><div class="d">${right}</div></div></article>`;
 }
@@ -288,7 +293,9 @@ function renderPostBody(post, livePosts, nowMs) {
   }
 
   const matchedPhrases = new Set(alsoMatches.map(m => m.phrase.toLowerCase()));
-  const searchSuggestions = alsoSearched.filter(p => p && !matchedPhrases.has(String(p).toLowerCase())).slice(0, 4);
+  const searchSuggestions = alsoSearched
+    .filter(p => p && !matchedPhrases.has(String(p).toLowerCase()))
+    .slice(0, alsoMatches.length ? 2 : 3);
 
   h += `<div class="f" style="margin:8px 0"><span class="m">Explore ${esc(cat)}:</span><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} Hub</a>`;
   for (const m of alsoMatches) {
@@ -575,7 +582,8 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     h += `<nav class="c" aria-label="Related briefings"><div class="f j"><p class="m"><strong>More in ${esc(cat)}</strong></p><a class="m" href="/c/${esc(catSlug)}">Browse all ${esc(cat)} &rarr;</a></div><div class="r g">`;
     for (const r of related) {
       const rCat = r.category || 'News';
-      h += `<p><a class="k" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · <a href="/p/${esc(r.slug)}">${esc(r.title)}</a> <span class="m">· ${timeAgo(r.created_at, nowMs)}</span></p>`;
+      const prefix = rCat === cat ? '' : `<a class="k" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · `;
+      h += `<p>${prefix}<a href="/p/${esc(r.slug)}">${esc(r.title)}</a> <span class="m">· ${timeAgo(r.created_at, nowMs)}</span></p>`;
     }
     h += '</div></nav>';
   }

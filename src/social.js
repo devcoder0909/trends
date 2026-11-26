@@ -24,6 +24,10 @@ const encRfc3986 = str =>
 
 const cleanHashtag = s =>
   String(s || '')
+    .replace(/ø/gi, 'o')
+    .replace(/æ/gi, 'ae')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9\s]/g, ' ')
     .trim()
     .split(/\s+/)

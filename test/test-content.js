@@ -8,7 +8,7 @@
 import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
 import { formatSocialPost, formatFacebookPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
 import { formatDisplayTopic, stripInlineSourceTags } from '../src/config.js';
-import { rankTopics } from '../src/rss.js';
+import { rankTopics, parseGoogleNewsRSS } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
 import { isNearDuplicateTopic } from '../src/index.js';
 
@@ -441,6 +441,20 @@ async function run() {
     failures++;
   } else {
     console.log('[PASS] Inline [Outlet] & prose source attribution stripped cleanly across articles & bullets');
+  }
+
+  const gnewsClean = parseGoogleNewsRSS(
+    '<rss><channel><item><title>[FREE!!] Lyon vs Lillestrom Live - Spam</title><source>Spam</source><link>https://spam.example</link></item><item><title>Lyon Faces Lillestrom in Europa League - BBC Sport</title><source>BBC Sport</source><link>https://bbc.example</link></item></channel></rss>'
+  );
+  const cleanTagPost = formatSocialPost({ slug: 'lyon-lillestrom', title: 'Lyon vs Lillestrøm', summary: 'Match preview.', category: 'Sports', topic: 'lyon lillestrøm' }, 'https://trends.example.com');
+  if (slugify('Lyon - Lillestrøm') !== 'lyon-lillestrom' ||
+      gnewsClean.length !== 1 ||
+      gnewsClean[0].source !== 'BBC Sport' ||
+      !cleanTagPost.tags.includes('#LyonLillestrom')) {
+    console.error(`[FAIL] SEO slugify/transliteration or RSS stream-spam filter check failed: slug=${slugify('Lyon - Lillestrøm')}, news=${gnewsClean.length}`);
+    failures++;
+  } else {
+    console.log('[PASS] Accented SEO slugs/hashtags & [FREE!!] RSS stream-spam filtering verified');
   }
 
   console.log(`\nTotal failures: ${failures}`);
