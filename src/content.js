@@ -123,8 +123,6 @@ function extractProperNames(text) {
   const multiRe = /\b([A-Z][a-zA-Z0-9'’-]+(?:\s+[A-Z][a-zA-Z0-9'’-]+)+)\b/g;
   let m;
   while ((m = multiRe.exec(text))) names.push(m[1]);
-  const midRe = /[a-z0-9,)\]]\s+([A-Z][a-zA-Z0-9'’-]{2,})\b/g;
-  while ((m = midRe.exec(text))) names.push(m[1]);
   return names;
 }
 
@@ -132,7 +130,7 @@ function extractProperNames(text) {
  * Validate draft structure, word count, banned phrases, duplicates,
  * and deterministic grounding of numbers, dates, and proper names.
  */
-export function validateDraft(draft, topic, sources, existingTitles = new Set()) {
+export function validateDraft(draft, topic, sources, existingTitles = new Set(), { minWords = 150 } = {}) {
   if (!draft || typeof draft !== 'object') return { ok: false, reason: 'missing JSON object' };
 
   const title = String(draft.title || '').trim();
@@ -187,8 +185,8 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set())
 
   const bodyText = [summary, whatHappened, whyTrending, ...normalizedFacts, whatNext].join(' ');
   const totalWords = countWords(bodyText);
-  if (totalWords < 150 || totalWords > 250) {
-    return { ok: false, reason: `word count ${totalWords} out of range (150-250)` };
+  if (totalWords < minWords || totalWords > 250) {
+    return { ok: false, reason: `word count ${totalWords} out of range (${minWords}-250)` };
   }
 
   const fullText = `${title} ${bodyText}`;
@@ -533,7 +531,8 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
       continue;
     }
 
-    const check = validateDraft(draft, topic, sources, existingTitles);
+    const minWords = attempt < 2 ? 150 : 110;
+    const check = validateDraft(draft, topic, sources, existingTitles, { minWords });
     if (!check.ok) {
       lastReason = check.reason;
       feedback = check.reason;
