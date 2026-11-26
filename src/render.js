@@ -23,8 +23,8 @@ export const slugify = s =>
     .replace(/^-|-$/g, '')
     .slice(0, 80);
 
-// Inline CSS (< 1.5KB) — Google News dark theme (#202124 / #292a2d / #8ab4f8)
-export const CSS = `*{margin:0;padding:0}body{font:15px/1.4 system-ui;background:#202124}body,.b,h2 a,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.k,.t .on,a:hover{color:#8ab4f8}p,ul,h1,h2{margin:4px 0}p,ul{color:#bdc1c6}a{text-decoration:none}h1,h2{font-weight:500}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}.w{max-width:820px;margin:0 auto;padding:8px}header{border-bottom:1px solid #3c4043}header .w{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.b,.k,.bt.on{font-weight:600}.qf{flex:1 1 12em;padding:2px 2px 2px 10px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.qf:focus-within,a.bt:hover{border-color:#8ab4f8}.t{gap:14px;overflow:auto;scrollbar-width:none}.t a{white-space:nowrap;padding:7px 0;border-bottom:3px solid transparent}.t .on,.t a:hover{border-color:#8ab4f8}h1 i{padding:5px;border-radius:5px;background:#5bb974}.m{font-size:12px}.bt{justify-content:center;min-height:34px;padding:0 12px;font-size:13px;background:#303134;border-radius:99px;cursor:pointer}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.pg{justify-content:center}.c{background:#292a2d;border-radius:14px;padding:12px;margin:8px 0}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.p{margin-top:8px}@media(min-width:640px){.r{display:grid;grid-template-columns:6fr 5fr;gap:12px}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 12px}}`;
+// Inline CSS (< 1.5KB) — Google News dark theme (#202124 / #292a2d / #8ab4f8 / #81c995)
+export const CSS = `*{margin:0;padding:0}body{font:15px/1.4 system-ui;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}a:hover{color:#d2e3fc}.k{color:#81c995}p,ul,h1,h2,img{margin:4px 0}p,ul{color:#bdc1c6}a{text-decoration:none}h1,h2,.b,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}.w{max-width:820px;margin:0 auto;padding:8px}header{border-bottom:1px solid #3c4043}header .w{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 12em;padding:2px 2px 2px 10px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.qf:focus-within,a.bt:hover{border-color:#8ab4f8}.t{gap:14px;overflow:auto;scrollbar-width:none}.t a{white-space:nowrap;padding:7px 0;border-bottom:3px solid #0000}.t .on,.t a:hover{border-color:#8ab4f8}h1 i{padding:5px;background:#81c995}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:6px 12px;font-size:13px;background:#303134;border-radius:99px;cursor:pointer}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:12px;margin:8px 0}.c,img,h1 i{border-radius:12px}img{max-width:100%;height:auto}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.p{margin-top:8px}@media(min-width:640px){.r{display:grid;grid-template-columns:6fr 5fr;gap:12px}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 12px}}`;
 
 export const BACK_SCRIPT = `document.querySelectorAll('[data-bk]').forEach(function(a){a.addEventListener('click',function(e){try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){e.preventDefault();history.back()}}catch(x){}})})`;
 export const BACK_SCRIPT_HASH = 'sha256-gYnBAx/IGgY222gaMwV06vj32azHtsaxP2c3Mm8K7EY=';
@@ -208,7 +208,7 @@ function renderSourcesList(post, linkOut = true) {
  * Compact Google News cluster card for feed lists (Home, Category, Search).
  * Avoids dumping full multi-paragraph essays onto list pages; links cleanly to /p/:slug.
  */
-function renderStoryCard(p, livePosts, nowMs, showCategory = true) {
+function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = false) {
   const cat = p.category || 'News';
   const catSlug = slugify(cat);
   const relTime = timeAgo(p.created_at, nowMs);
@@ -220,7 +220,11 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true) {
 
   let left = `<p class="m">${showCategory ? `<a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · ` : ''}<time datetime="${esc(p.created_at)}">${relTime}</time>`;
   if (p.updated_at && p.updated_at !== p.created_at) left += ` · Updated ${timeAgo(p.updated_at, nowMs)}`;
-  left += `</p><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
+  left += `</p>`;
+  if (p.image_url) {
+    left += `<a href="/p/${esc(p.slug)}"><img src="${esc(p.image_url)}" alt="${esc(p.title)}" width="300" height="168" referrerpolicy="no-referrer" decoding="async"${isFirstImg ? '' : ' loading="lazy"'}></a>`;
+  }
+  left += `<h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
   if (lead) left += `<p class="sum">${esc(lead)}</p>`;
   if (latestUpdate) {
     left += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdate.text)}</p>`;
@@ -252,6 +256,9 @@ function renderPostBody(post, livePosts, nowMs) {
 
   let h = '';
   if (summary) h += `<p class="sum">${esc(summary)}</p>`;
+  if (post.image_url) {
+    h += `<figure><img src="${esc(post.image_url)}" alt="${esc(post.title)}" width="300" height="168" referrerpolicy="no-referrer" decoding="async">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure>`;
+  }
   if (whatHappened) h += '<h2>What Happened</h2>' + `<p>${esc(whatHappened)}</p>`;
   if (whyTrending) h += `<h2>Why ${esc(post.topic || 'This')} Is Trending</h2><p>${esc(whyTrending)}</p>`;
   if (keyFacts.length) h += '<h2>Key Facts</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul>';
@@ -329,7 +336,12 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
   if (pg.totalItems) {
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} live briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
-  for (const p of pg.items) h += renderStoryCard(p, posts, nowMs, true);
+  let seenImg = false;
+  for (const p of pg.items) {
+    const first = Boolean(p.image_url && !seenImg);
+    if (p.image_url) seenImg = true;
+    h += renderStoryCard(p, posts, nowMs, true, first);
+  }
   if (!pg.items.length) h += '<article class="c"><p>No active briefings right now. Check back shortly.</p></article>';
   h += renderPagination(n => (n <= 1 ? '/' : `/page/${n}`), pg.page, pg.totalPages);
   return h + '</main>' + htmlFoot(settings.contactEmail);
@@ -387,7 +399,12 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
   if (pg.totalItems) {
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} ${esc(catLower)} briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
-  for (const p of pg.items) h += renderStoryCard(p, posts, nowMs, false);
+  let seenImg = false;
+  for (const p of pg.items) {
+    const first = Boolean(p.image_url && !seenImg);
+    if (p.image_url) seenImg = true;
+    h += renderStoryCard(p, posts, nowMs, false, first);
+  }
   if (!pg.items.length) h += `<article class="c"><p>No active ${esc(catLower)} briefings right now. <a href="/">View Top stories</a>.</p></article>`;
   h += renderPagination(n => (n <= 1 ? `/c/${catSlug}` : `/c/${catSlug}/page/${n}`), pg.page, pg.totalPages);
   return h + '</main>' + htmlFoot(settings.contactEmail);
@@ -428,7 +445,12 @@ export function searchPage({ query = '', cat = '', page = 1, results = [], allLi
 
   if (cleanQ) {
     h += `<p class="m">${pg.totalItems} matching ${pg.totalItems === 1 ? 'briefing' : 'briefings'}${pg.totalPages > 1 ? ` · Page ${pg.page} of ${pg.totalPages}` : ''}</p>`;
-    for (const p of pg.items) h += renderStoryCard(p, allLive, nowMs, true);
+    let seenImg = false;
+    for (const p of pg.items) {
+      const first = Boolean(p.image_url && !seenImg);
+      if (p.image_url) seenImg = true;
+      h += renderStoryCard(p, allLive, nowMs, true, first);
+    }
     if (!pg.items.length) {
       h += '<article class="c"><p>No live briefings matched your query.</p>';
       if (allLive.length) {
@@ -445,7 +467,12 @@ export function searchPage({ query = '', cat = '', page = 1, results = [], allLi
     const shown = cleanCat ? allLive.filter(p => slugify(p.category || 'News') === cleanCat) : allLive;
     const latest = shown.slice(0, 5);
     h += '<p class="m">Enter a keyword above or browse recent live topics below:</p>';
-    for (const p of latest) h += renderStoryCard(p, allLive, nowMs, true);
+    let seenImg = false;
+    for (const p of latest) {
+      const first = Boolean(p.image_url && !seenImg);
+      if (p.image_url) seenImg = true;
+      h += renderStoryCard(p, allLive, nowMs, true, first);
+    }
   }
 
   return h + '</main>' + htmlFoot(settings.contactEmail);
@@ -468,7 +495,10 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     datePublished: post.created_at,
     dateModified,
     description: desc,
-    image: [{ '@type': 'ImageObject', url: ogImg, width: 1200, height: 630 }],
+    image: [
+      { '@type': 'ImageObject', url: ogImg, width: 1200, height: 630 },
+      ...(post.image_url ? [post.image_url] : []),
+    ],
     articleSection: cat,
     keywords,
     inLanguage: 'en',

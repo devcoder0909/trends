@@ -79,7 +79,7 @@ export const normalizeHost = raw =>
 
 export function getSettings(env = {}) {
   return {
-    maxDaily: Math.max(1, Number(env.MAX_DAILY || 120)),
+    maxDaily: Math.max(1, Number(env.MAX_DAILY || 200)),
     baseTtlHours: Math.max(1, Number(env.BASE_TTL_HOURS || 48)),
     extendedTtlHours: Math.max(1, Number(env.EXTENDED_TTL_HOURS || 168)),
     extendMinHits: Math.max(1, Number(env.EXTEND_MIN_HITS || 1)),

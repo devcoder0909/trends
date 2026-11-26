@@ -54,6 +54,8 @@ export function parseTrendsRSS(xml) {
 
     const approxTraffic = parseApproxTraffic(xmlTag(block, 'ht:approx_traffic'));
     const itemPubDate = xmlTag(block, 'pubDate');
+    const imageUrl = xmlTag(block, 'ht:picture');
+    const imageSource = stripHtml(xmlTag(block, 'ht:picture_source'));
     const newsItems = [];
     const niRe = /<ht:news_item>([\s\S]*?)<\/ht:news_item>/g;
     let ni;
@@ -72,7 +74,7 @@ export function parseTrendsRSS(xml) {
         });
       }
     }
-    items.push({ title, approxTraffic, pubDate: itemPubDate, newsItems });
+    items.push({ title, approxTraffic, pubDate: itemPubDate, imageUrl, imageSource, newsItems });
   }
   return items;
 }
@@ -186,7 +188,17 @@ export function rankTopics(candidates) {
       // Combine multi-country volume & news items; prefer US geo label when US matches
       prev.approxTraffic = (prev.approxTraffic || 0) + (c.approxTraffic || 0);
       prev.newsItems = [...prev.newsItems, ...(c.newsItems || [])];
-      if (c.geo === 'US') prev.geo = 'US';
+      if (!prev.imageUrl && c.imageUrl) {
+        prev.imageUrl = c.imageUrl;
+        prev.imageSource = c.imageSource || '';
+      }
+      if (c.geo === 'US') {
+        prev.geo = 'US';
+        if (c.imageUrl) {
+          prev.imageUrl = c.imageUrl;
+          prev.imageSource = c.imageSource || '';
+        }
+      }
     }
   }
 

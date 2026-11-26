@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS topics (
   bullets            TEXT    NOT NULL DEFAULT '[]',
   sources            TEXT    NOT NULL DEFAULT '',
   source_urls        TEXT    NOT NULL DEFAULT '[]',
+  image_url          TEXT    NOT NULL DEFAULT '',
+  image_source       TEXT    NOT NULL DEFAULT '',
   category           TEXT    NOT NULL DEFAULT 'News',
   topic              TEXT    NOT NULL,
   geo                TEXT    NOT NULL DEFAULT 'US',

@@ -13,6 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { handleFetch, handleScheduled } from '../src/index.js';
 import { processExpirationsAndExtensions } from '../src/lifetime.js';
 import { getSettings } from '../src/config.js';
+import { parseTrendsRSS } from '../src/rss.js';
 
 /** Minimal D1-compatible wrapper backed by Node's built-in node:sqlite */
 function createD1Shim(sqlFile) {
@@ -297,6 +298,29 @@ async function run() {
     ogPostRes.status === 200 && ogPostRes.headers.get('content-type') === 'image/png' &&
     favRes.status === 200 && (favRes.headers.get('content-type') || '').includes('svg'),
     `og=${ogBytes.length}B, postOg=${ogPostRes.status}, fav=${favRes.status}`
+  );
+
+  // Case 6: Remote RSS image parsing, non-lazy first image + lazy others, colored headline links & CSP
+  const rssParsed = parseTrendsRSS(
+    `<rss xmlns:ht="https://trends.google.com/trending/rss"><channel><item><title>Sample Photo Story</title><ht:approx_traffic>50,000+</ht:approx_traffic><ht:picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:TESTPIC</ht:picture><ht:picture_source>AP News</ht:picture_source></item></channel></rss>`
+  );
+  uiDb.sqlite.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE slug IN (?, ?)').run(
+    'https://encrypted-tbn0.gstatic.com/images?q=tbn:TESTPIC', 'AP News', 'topic-15', 'topic-14'
+  );
+  const imgHomeRes = await handleFetch(new Request('https://trends.example.com/'), uiEnv, ctx);
+  const imgHomeHtml = await imgHomeRes.text();
+  const imgTags = imgHomeHtml.match(/<img\b[^>]*>/g) || [];
+  const imgPostRes = await handleFetch(new Request('https://trends.example.com/p/topic-15'), uiEnv, ctx);
+  const imgPostHtml = await imgPostRes.text();
+  record(
+    'Remote images render with attribution, first-eager/rest-lazy, colored links & HTTPS CSP',
+    rssParsed.length === 1 && rssParsed[0].imageUrl.includes('TESTPIC') && rssParsed[0].imageSource === 'AP News' &&
+    imgTags.length === 2 && !imgTags[0].includes('loading="lazy"') && imgTags[1].includes('loading="lazy"') &&
+    imgTags[0].includes('width="300" height="168"') &&
+    imgPostHtml.includes('Image: AP News') &&
+    (imgHomeRes.headers.get('content-security-policy') || '').includes('img-src \'self\' https: data:') &&
+    !imgHomeHtml.includes('body,.b,h2 a'),
+    `imgs=${imgTags.length}`
   );
 
   const failed = results.filter(r => !r.ok).length;

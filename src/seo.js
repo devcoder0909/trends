@@ -160,6 +160,7 @@ async function getGoogleAccessToken(serviceAccountJson) {
 
 /**
  * Notify Google Search Indexing API v3 when GOOGLE_INDEXING_KEY secret is set.
+ * Runs concurrently for instant notification velocity.
  * Type: 'URL_UPDATED' | 'URL_DELETED'
  */
 export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
@@ -167,17 +168,19 @@ export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
   if (!env.GOOGLE_INDEXING_KEY || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
   try {
     const token = await getGoogleAccessToken(env.GOOGLE_INDEXING_KEY);
-    for (const url of uniqueUrls) {
-      const res = await fetch('https://indexing.googleapis.com/v3/urlNotifications:publish', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ url, type }),
-      });
-      if (!res.ok) console.error('Google Indexing HTTP', res.status, url);
-    }
+    await Promise.allSettled(
+      uniqueUrls.map(async url => {
+        const res = await fetch('https://indexing.googleapis.com/v3/urlNotifications:publish', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ url, type }),
+        });
+        if (!res.ok) console.error('Google Indexing HTTP', res.status, url, await res.text());
+      })
+    );
   } catch (err) {
     console.error('Google Indexing error:', err.message);
   }

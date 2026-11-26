@@ -28,7 +28,7 @@ const todayStr = () => isoNow().slice(0, 10);
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; script-src '${BACK_SCRIPT_HASH}'; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
+  'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; script-src '${BACK_SCRIPT_HASH}'; img-src 'self' https: data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -283,9 +283,21 @@ export async function handleScheduled(env) {
   const ranked = rankTopics(rawCandidates);
 
   const liveRows = (await db.prepare(
-    "SELECT title, topic FROM topics WHERE status = 'published' AND expires_at > ?"
+    "SELECT id, slug, title, topic, image_url FROM topics WHERE status = 'published' AND expires_at > ?"
   ).bind(now).all()).results || [];
   const liveTitles = new Set(liveRows.map(r => r.title.toLowerCase()));
+  const liveBySlug = new Map(liveRows.map(r => [r.slug, r]));
+
+  for (const item of ranked) {
+    const slugKey = slugify(item.title);
+    const existing = liveBySlug.get(slugKey);
+    if (existing && !existing.image_url && item.imageUrl) {
+      await db.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE id = ?')
+        .bind(item.imageUrl, item.imageSource || '', existing.id)
+        .run();
+      existing.image_url = item.imageUrl;
+    }
+  }
 
   const newUrls = [];
   let processedThisTick = 0;
@@ -359,13 +371,14 @@ export async function handleScheduled(env) {
           `INSERT INTO topics (
             slug, title, body, summary, what_happened, why_trending, key_facts,
             what_to_know_next, also_searched, bullets, sources, source_urls,
-            category, topic, geo, status, approx_traffic, created_at, updated_at, expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            image_url, image_source, category, topic, geo, status, approx_traffic, created_at, updated_at, expires_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           hash, post.title, post.what_happened, post.summary, post.what_happened,
           post.why_trending, JSON.stringify(post.key_facts), post.what_to_know_next,
           JSON.stringify(post.also_searched), JSON.stringify(post.key_facts),
-          sourcesCsv, JSON.stringify(merged.sourceUrls), post.category,
+          sourcesCsv, JSON.stringify(merged.sourceUrls),
+          item.imageUrl || '', item.imageSource || '', post.category,
           item.title, item.geo, status, item.approxTraffic || 0, created, created, expires
         ),
         db.prepare('INSERT OR IGNORE INTO seen_topics (topic_hash, slug, seen_at) VALUES (?, ?, ?)')
