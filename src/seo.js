@@ -48,15 +48,16 @@ export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
 
 export async function pingIndexNow(env, urls) {
   const uniqueUrls = [...new Set(urls)].filter(Boolean);
-  if (!env.INDEXNOW_KEY || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
+  const host = String(env.SITE_HOST || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  if (!env.INDEXNOW_KEY || !host || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
   try {
     await fetch('https://api.indexnow.org/indexnow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        host: env.SITE_HOST,
+        host,
         key: env.INDEXNOW_KEY,
-        keyLocation: `https://${env.SITE_HOST}/${env.INDEXNOW_KEY}.txt`,
+        keyLocation: `https://${host}/${env.INDEXNOW_KEY}.txt`,
         urlList: uniqueUrls.slice(0, 10_000),
       }),
     });

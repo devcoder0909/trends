@@ -9,7 +9,7 @@
  * - Zero client JS, inline CSS (<1.5KB), no images, no analytics
  */
 
-import { getSettings, isSensitive } from './config.js';
+import { getSettings, isSensitive, normalizeHost } from './config.js';
 import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics } from './rss.js';
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
@@ -284,7 +284,7 @@ export async function handleScheduled(env) {
 export async function handleFetch(request, env, ctx) {
   const settings = getSettings(env);
   const url = new URL(request.url);
-  const siteUrl = `https://${env.SITE_HOST || url.host}`;
+  const siteUrl = `https://${normalizeHost(env.SITE_HOST) || url.host}`;
   const path = url.pathname;
   const db = env.DB;
   const now = isoNow();

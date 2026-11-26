@@ -74,6 +74,9 @@ export function classifyCategory(topic, contextText = '') {
   return best;
 }
 
+export const normalizeHost = raw =>
+  String(raw || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+
 export function getSettings(env = {}) {
   return {
     maxDaily: Math.max(1, Number(env.MAX_DAILY || 40)),
@@ -82,7 +85,7 @@ export function getSettings(env = {}) {
     extendMinHits: Math.max(1, Number(env.EXTEND_MIN_HITS || 1)),
     holdMaxMinutes: Math.max(1, Number(env.HOLD_MAX_MINUTES || 30)),
     seenTtlDays: 7,
-    siteHost: env.SITE_HOST || 'trends.example.com',
+    siteHost: normalizeHost(env.SITE_HOST) || 'trends.example.com',
     siteName: env.SITE_NAME || 'Trending Now',
     contactEmail: env.CONTACT_EMAIL || 'admin@example.com',
     geos: (env.GEO_LIST || 'US')

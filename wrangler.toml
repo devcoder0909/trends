@@ -6,28 +6,28 @@ compatibility_date = "2024-11-01"
 [triggers]
 crons = ["* * * * *"]
 
-# D1 database binding
+# D1 database binding (code expects env.DB)
 [[d1_databases]]
 binding = "DB"
 database_name = "trends-db"
-database_id = "YOUR_DATABASE_ID"   # ← paste from `wrangler d1 create trends-db`
+database_id = "5cb81308-7a86-4e9b-8801-b401b197f3c4"
 
 # Workers AI binding
 [ai]
 binding = "AI"
 
-# Environment variables — edit these before deploying
+# Environment variables
 [vars]
-SITE_HOST          = "trends.example.com"      # your domain (no protocol)
-SITE_NAME          = "Trending Now"            # publisher / site name in JSON-LD & header
-CONTACT_EMAIL      = "you@example.com"
-GEO_LIST           = "US"                      # comma-separated: US,GB,IN,DE
-INDEXNOW_KEY       = "GENERATE_A_32_CHAR_HEX"  # node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
-BASE_TTL_HOURS     = "48"                      # default post lifetime (hours)
-EXTENDED_TTL_HOURS = "168"                     # extended lifetime (7 days) when search traction is proven
-EXTEND_MIN_HITS    = "1"                       # search-engine human visits within 48h needed to extend
-# SITE_END_AT      = "2026-12-01T00:00:00Z"    # stop fetching new topics; serve live posts until expires_at, then 410
-# DEV_MODE         = "true"                    # uncomment for local testing with mock RSS
+SITE_HOST          = "trendingrightnow.online"         # hostname only (no https:// or trailing /)
+SITE_NAME          = "Trending Now"                    # publisher / site name in JSON-LD & header
+CONTACT_EMAIL      = "tushar.ikontel@gmail.com"
+GEO_LIST           = "US"                              # comma-separated: US,GB,IN,DE
+INDEXNOW_KEY       = "3351402e2770d203c6a06bab4ba4ff4e"
+BASE_TTL_HOURS     = "48"                              # default post lifetime (hours)
+EXTENDED_TTL_HOURS = "168"                             # extended lifetime (7 days) when search traction is proven
+EXTEND_MIN_HITS    = "1"                               # search-engine human visits within 48h needed to extend
+# SITE_END_AT      = "2026-12-01T00:00:00Z"            # stop fetching new topics; serve live posts until expires_at, then 410
+# DEV_MODE         = "true"                            # uncomment for local testing with mock RSS
 
 # Secrets (set via CLI, not here):
 #   npx wrangler secret put GEMINI_API_KEY
