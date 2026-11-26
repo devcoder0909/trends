@@ -40,16 +40,23 @@ export function sitemapXml(posts, siteUrl) {
 
 /**
  * Google News sitemap — strictly limited to posts created in the last 48 hours.
+ * Falls back to a valid homepage <url> entry if 0 recent posts exist so GSC
+ * never fails schema validation with "Missing XML tag: url".
  */
 export function newsSitemapXml(posts, siteUrl, siteName = 'Trending Now', nowMs = Date.now()) {
   const cutoffMs = nowMs - 48 * 3600_000;
   let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">';
+  let count = 0;
   for (const p of posts) {
     if (Date.parse(p.created_at) < cutoffMs) continue;
     let kw = [p.category || 'News'];
     try { kw = [...kw, ...(JSON.parse(p.also_searched || '[]') || [])]; } catch {}
     const kwStr = [...new Set(kw)].filter(Boolean).slice(0, 5).join(', ');
     x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><news:news><news:publication><news:name>${esc(siteName)}</news:name><news:language>en</news:language></news:publication><news:publication_date>${esc(p.created_at)}</news:publication_date><news:title>${esc(p.title)}</news:title>${kwStr ? `<news:keywords>${esc(kwStr)}</news:keywords>` : ''}</news:news></url>`;
+    count++;
+  }
+  if (count === 0) {
+    x += `<url><loc>${siteUrl}/</loc><lastmod>${new Date(nowMs).toISOString()}</lastmod></url>`;
   }
   return x + '</urlset>';
 }

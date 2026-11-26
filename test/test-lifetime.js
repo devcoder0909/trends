@@ -184,7 +184,7 @@ async function run() {
   const catHtml = await catRes.text();
   record(
     'Sitemap keeps extended post & /c/tech hub; news-sitemap limits to 48h',
-    smXml.includes('/p/google-hit-post') && smXml.includes('/c/tech') && !nsmXml.includes('/p/google-hit-post') && catRes.status === 200 && catHtml.includes('google-hit-post'),
+    smXml.includes('/p/google-hit-post') && smXml.includes('/c/tech') && !nsmXml.includes('/p/google-hit-post') && nsmXml.includes('<url>') && catRes.status === 200 && catHtml.includes('google-hit-post'),
     `catStatus=${catRes.status}`
   );
 
