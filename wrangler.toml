@@ -27,6 +27,7 @@ INDEXNOW_KEY       = "3351402e2770d203c6a06bab4ba4ff4e"
 BASE_TTL_HOURS     = "48"                              # default post lifetime (hours)
 EXTENDED_TTL_HOURS = "168"                             # extended lifetime (7 days) when search traction is proven
 EXTEND_MIN_HITS    = "1"                               # search-engine human visits within 48h needed to extend
+WEBHOOK_MIN_GAP_MINS = "90"                            # pace SOCIAL_WEBHOOK_URL (~16 top posts/day -> fits Make Free 1,000 ops/mo)
 # SITE_END_AT      = "2026-12-01T00:00:00Z"            # stop fetching new topics; serve live posts until expires_at, then 410
 # DEV_MODE         = "true"                            # uncomment for local testing with mock RSS
 

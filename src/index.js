@@ -197,6 +197,25 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso, budget) {
   return updatedUrls;
 }
 
+export async function canSendWebhookNow(db, env, nowMs = Date.now()) {
+  if (!env.SOCIAL_WEBHOOK_URL) return false;
+  const gapMins = Math.max(0, Number(env.WEBHOOK_MIN_GAP_MINS ?? 90));
+  if (gapMins === 0) return true;
+  try {
+    const row = await db.prepare("SELECT v FROM social_state WHERE k = 'webhook_last_at'").first();
+    const lastMs = row?.v ? Date.parse(row.v) : 0;
+    return !lastMs || (nowMs - lastMs) >= gapMins * 60_000;
+  } catch {
+    return true;
+  }
+}
+
+async function markWebhookSent(db, nowIso) {
+  try {
+    await db.prepare("INSERT OR REPLACE INTO social_state (k, v) VALUES ('webhook_last_at', ?)").bind(nowIso).run();
+  } catch { /* ignore if migration not yet applied */ }
+}
+
 // ══════════════════════════════════════════════════════════════
 //  CRON HANDLER — runs every minute
 // ══════════════════════════════════════════════════════════════
@@ -480,11 +499,19 @@ export async function handleScheduled(env) {
   }).filter(Boolean);
 
   if (indexNowBatch.length) {
+    const allowWebhook = publishedPosts.length > 0 && await canSendWebhookNow(db, env);
+    const socialTask = publishToSocial(env, publishedPosts, siteUrl, budget, { allowWebhook })
+      .then(async res => {
+        if (allowWebhook && res.find(r => r.platform === 'webhook')?.ok) {
+          await markWebhookSent(db, isoNow());
+        }
+        return res;
+      });
     await Promise.allSettled([
       pingIndexNow(env, indexNowBatch),
       pingWebSub(env, siteUrl),
       pingGoogleIndexing(env, postPings, 'URL_UPDATED'),
-      publishToSocial(env, publishedPosts, siteUrl, budget),
+      socialTask,
       purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths]),
     ]);
   }

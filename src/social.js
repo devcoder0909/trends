@@ -423,7 +423,7 @@ async function postToFacebook(env, post, siteUrl, budget) {
  * Broadcast newly published trending stories (max 2 per tick) across all configured
  * zero-budget social platforms without interrupting indexing on any channel failure.
  */
-export async function publishToSocial(env, posts, siteUrl, budget = null, { force = false } = {}) {
+export async function publishToSocial(env, posts, siteUrl, budget = null, { force = false, allowWebhook = true } = {}) {
   if (!posts?.length) return [];
   if (!force && String(env?.DEV_MODE || '').toLowerCase() === 'true') return [];
 
@@ -433,13 +433,13 @@ export async function publishToSocial(env, posts, siteUrl, budget = null, { forc
     (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHANNEL_ID) ||
     (env.MASTODON_INSTANCE && env.MASTODON_TOKEN) ||
     env.DISCORD_WEBHOOK_URL ||
-    env.SOCIAL_WEBHOOK_URL ||
+    (allowWebhook && env.SOCIAL_WEBHOOK_URL) ||
     (env.X_CONSUMER_KEY && env.X_ACCESS_TOKEN)
   );
   if (!hasAnyTarget) return [];
 
   const results = [];
-  for (const post of posts.slice(0, 2)) {
+  for (const [idx, post] of posts.slice(0, 2).entries()) {
     const formatted = formatSocialPost(post, siteUrl, 295);
     const item = { ...formatted, slug: post.slug, siteUrl };
     const tasks = [
@@ -448,7 +448,8 @@ export async function publishToSocial(env, posts, siteUrl, budget = null, { forc
       ['telegram', () => postToTelegram(env, item, post, siteUrl, budget)],
       ['mastodon', () => postToMastodon(env, item, budget)],
       ['discord', () => postToDiscord(env, item, budget)],
-      ['webhook', () => postToWebhook(env, item, post, siteUrl, budget)],
+      // Send only top-ranked story per tick when webhook is enabled to protect Make Free ops quota
+      ['webhook', () => (allowWebhook && idx === 0 ? postToWebhook(env, item, post, siteUrl, budget) : Promise.resolve())],
       ['x', () => postToX(env, item, budget)],
     ];
     const settled = await Promise.allSettled(tasks.map(([, fn]) => fn()));

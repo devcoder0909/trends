@@ -70,3 +70,9 @@ CREATE TABLE IF NOT EXISTS rejected (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rejected_at ON rejected(rejected_at);
+
+-- Lightweight state for paced webhooks (e.g. Make.com Free quota protection)
+CREATE TABLE IF NOT EXISTS social_state (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);

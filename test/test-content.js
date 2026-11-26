@@ -408,23 +408,34 @@ async function run() {
       X_CONSUMER_SECRET: 'cs',
       X_ACCESS_TOKEN: 'at',
       X_ACCESS_SECRET: 'as',
-    }, [{
-      slug: 'arsenal-vs-chelsea',
-      title: 'Arsenal vs Chelsea',
-      summary: 'Summary line.',
-      key_facts: ['Fact 1', 'Fact 2'],
-      category: 'Sports',
-      topic: 'arsenal vs chelsea',
-    }], 'https://trends.example.com', null, { force: true });
-    const allOk = pubResults.length === 7 && pubResults.every(r => r.ok);
+    }, [
+      {
+        slug: 'arsenal-vs-chelsea',
+        title: 'Arsenal vs Chelsea',
+        summary: 'Summary line.',
+        key_facts: ['Fact 1', 'Fact 2'],
+        category: 'Sports',
+        topic: 'arsenal vs chelsea',
+      },
+      {
+        slug: 'apple-m5-macbook',
+        title: 'Apple M5 MacBook',
+        summary: 'Summary line 2.',
+        key_facts: ['Fact A', 'Fact B'],
+        category: 'Tech',
+        topic: 'apple m5 macbook',
+      },
+    ], 'https://trends.example.com', null, { force: true });
+    const allOk = pubResults.length === 14 && pubResults.every(r => r.ok);
     const hasFacet = socialRequests.some(r => r.url.includes('createRecord') && String(r.body).includes('app.bsky.richtext.facet#link'));
     const hasFbFeed = socialRequests.some(r => r.url.includes('graph.facebook.com/') && r.url.includes('/1234567890/feed'));
-    const hasWebhookFbMsg = socialRequests.some(r => r.url.includes('hooks.example.com/social') && String(r.body).includes('facebookMessage'));
+    const webhookCalls = socialRequests.filter(r => r.url.includes('hooks.example.com/social'));
+    const hasWebhookFbMsg = webhookCalls.length === 1 && String(webhookCalls[0].body).includes('facebookMessage');
     if (!allOk || !hasFacet || !hasFbFeed || !hasWebhookFbMsg || !fbClean || !tgClean || !oauthSig.startsWith('OAuth ')) {
-      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}, hasFbFeed=${hasFbFeed}, hasWebhookFbMsg=${hasWebhookFbMsg}, fbClean=${fbClean}, tgClean=${tgClean}`);
+      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}, hasFbFeed=${hasFbFeed}, webhookCalls=${webhookCalls.length}, fbClean=${fbClean}, tgClean=${tgClean}`);
       failures++;
     } else {
-      console.log('[PASS] Multi-platform zero-budget social publish (Facebook Page, Bluesky, Telegram, Mastodon, Discord, Webhook, X) verified');
+      console.log('[PASS] Multi-platform zero-budget social publish (Facebook Page, Bluesky, Telegram, Mastodon, Discord, Webhook [1/tick], X) verified');
     }
   } finally {
     globalThis.fetch = origFetch;

@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { handleFetch, handleScheduled } from '../src/index.js';
+import { handleFetch, handleScheduled, canSendWebhookNow } from '../src/index.js';
 import { processExpirationsAndExtensions } from '../src/lifetime.js';
 import { getSettings } from '../src/config.js';
 import { parseTrendsRSS } from '../src/rss.js';
@@ -418,6 +418,14 @@ async function run() {
     techHubHtml.includes('Live tech coverage hub tracking verified updates'),
     'verified'
   );
+
+  // Case 10: Webhook free-tier pacing (allows first post, blocks within 90m gap, allows after 90m)
+  const whEnv = { SOCIAL_WEBHOOK_URL: 'https://hook.example.com/test', WEBHOOK_MIN_GAP_MINS: '90' };
+  const wh1 = await canSendWebhookNow(uiDb, whEnv, nowMs);
+  await uiDb.prepare("INSERT OR REPLACE INTO social_state (k, v) VALUES ('webhook_last_at', ?)").bind(new Date(nowMs).toISOString()).run();
+  const wh2 = await canSendWebhookNow(uiDb, whEnv, nowMs + 30 * 60_000);
+  const wh3 = await canSendWebhookNow(uiDb, whEnv, nowMs + 95 * 60_000);
+  record('Webhook free-tier pacing blocks bursts <90m and allows after 90m', wh1 && !wh2 && wh3, `w1=${wh1}, w2=${wh2}, w3=${wh3}`);
 
   const failed = results.filter(r => !r.ok).length;
   console.log(`\nTotal failures: ${failed}`);
