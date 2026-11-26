@@ -3,6 +3,9 @@
  * Uses native Web Streams CompressionStream('deflate') with a compact 5x7 font.
  */
 
+import { FAVICON_SVG } from './logo.js';
+export { FAVICON_SVG };
+
 const FONT_5X7 = {
   ' ': [0, 0, 0, 0, 0],
   '!': [0, 0, 95, 0, 0],
@@ -108,8 +111,6 @@ function wrapLines(text, maxChars = 22, maxLines = 3) {
   return lines.length ? lines : ['TRENDING NOW'];
 }
 
-export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#202124"/><path d="M6 21l6-6 4 4 9-9" fill="none" stroke="#8ab4f8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="25" cy="10" r="3" fill="#5bb974"/></svg>`;
-
 export async function generateOgPng({
   title = 'Live Factual Trend Briefings',
   category = 'Top Stories',
@@ -150,7 +151,7 @@ export async function generateOgPng({
     }
   };
 
-  // Palette: 0:#202124 bg, 1:#292a2d card, 2:#3c4043 border, 3:#8ab4f8 blue, 4:#5bb974 green, 5:#e8eaed text, 6:#9aa0a6 muted, 7:#202124 dark-on-blue
+  // Palette: 0:#202124 bg, 1:#292a2d card, 2:#3c4043 border, 3:#8ab4f8 blue, 4:#5bb974 green, 5:#e8eaed text, 6:#9aa0a6 muted, 7:#202124 dark-on-blue, 8:#02b890 teal, 9:#01585c deep teal, 10:#3be06d lime
   const palette = new Uint8Array([
     0x20, 0x21, 0x24,
     0x29, 0x2a, 0x2d,
@@ -160,14 +161,40 @@ export async function generateOgPng({
     0xe8, 0xea, 0xed,
     0x9a, 0xa0, 0xa6,
     0x20, 0x21, 0x24,
+    0x02, 0xb8, 0x90,
+    0x01, 0x58, 0x5c,
+    0x3b, 0xe0, 0x6d,
   ]);
+
+  const fillPoly = (pts, c) => {
+    const xs = pts.map(p => p[0]);
+    const ys = pts.map(p => p[1]);
+    const minY = Math.max(0, Math.floor(Math.min(...ys)));
+    const maxY = Math.min(H - 1, Math.ceil(Math.max(...ys)));
+    for (let y = minY; y <= maxY; y++) {
+      const ix = [];
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const [x1, y1] = pts[j], [x2, y2] = pts[i];
+        if ((y1 <= y && y2 > y) || (y2 <= y && y1 > y)) ix.push(x1 + ((y - y1) * (x2 - x1)) / (y2 - y1));
+      }
+      ix.sort((a, b) => a - b);
+      for (let k = 0; k + 1 < ix.length; k += 2) {
+        const a = Math.max(0, Math.ceil(ix[k])), b = Math.min(W - 1, Math.floor(ix[k + 1]));
+        for (let x = a; x <= b; x++) setPx(x, y, c);
+      }
+    }
+  };
 
   fillRect(58, 58, 1084, 514, 2);
   fillRect(60, 60, 1080, 510, 1);
   fillRect(60, 60, 1080, 8, 3);
 
-  fillRect(110, 124, 22, 22, 4);
-  drawText(siteName.slice(0, 22), 148, 121, 4, 5);
+  // Render geometric brand mark (chevron + 3D prism facets) scaled to 42px at (106, 113)
+  const lp = (x, y) => [106 + x * 0.42, 113 + y * 0.42];
+  fillPoly([lp(4, 51), lp(82, 10), lp(95, 22), lp(80, 76), lp(74, 80), lp(68, 65), lp(79, 28), lp(7, 54)], 10);
+  fillPoly([lp(61, 45), lp(43, 86), lp(74, 80), lp(69, 65)], 8);
+  fillPoly([lp(60, 45), lp(17, 90), lp(43, 86)], 9);
+  drawText(siteName.slice(0, 22), 160, 121, 4, 5);
 
   const badge = String(category || 'News').toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, 18) || 'NEWS';
   fillRect(110, 192, badge.length * 18 + 36, 42, 3);

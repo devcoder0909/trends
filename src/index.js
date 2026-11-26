@@ -20,7 +20,8 @@ import {
 } from './render.js';
 import { sitemapXml, newsSitemapXml, robotsTxt, llmsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
 import { publishToSocial } from './social.js';
-import { FAVICON_SVG, generateOgPng } from './og.js';
+import { FAVICON_SVG, getLogoPngBytes } from './logo.js';
+import { generateOgPng } from './og.js';
 
 const MAX_TOPICS_PER_TICK = 3; // balanced throughput well below Cloudflare's 50-subrequest limit
 
@@ -526,6 +527,16 @@ export async function handleFetch(request, env, ctx) {
       headers: {
         'Content-Type': 'image/svg+xml;charset=utf-8',
         'Cache-Control': 'public, max-age=86400',
+        ...SECURITY_HEADERS,
+      },
+    });
+  }
+
+  if (path === '/logo.png' || path === '/apple-touch-icon.png') {
+    return new Response(getLogoPngBytes(), {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, s-maxage=604800, max-age=86400',
         ...SECURITY_HEADERS,
       },
     });

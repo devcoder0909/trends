@@ -291,13 +291,19 @@ async function run() {
   const ogBytes = new Uint8Array(await ogRes.arrayBuffer());
   const ogPostRes = await handleFetch(new Request('https://trends.example.com/og/topic-14.png'), uiEnv, ctx);
   const favRes = await handleFetch(new Request('https://trends.example.com/favicon.svg'), uiEnv, ctx);
+  const logoRes = await handleFetch(new Request('https://trends.example.com/logo.png'), uiEnv, ctx);
+  const logoBytes = new Uint8Array(await logoRes.arrayBuffer());
+  const touchRes = await handleFetch(new Request('https://trends.example.com/apple-touch-icon.png'), uiEnv, ctx);
   record(
-    'OG PNG (/og.png, /og/:slug.png) & favicon (/favicon.svg) serve valid assets',
+    'OG PNG (/og.png, /og/:slug.png), brand /logo.png & /favicon.svg serve valid assets',
     ogRes.status === 200 && ogRes.headers.get('content-type') === 'image/png' &&
     ogBytes[0] === 137 && ogBytes[1] === 80 && ogBytes[2] === 78 && ogBytes[3] === 71 &&
+    logoRes.status === 200 && logoRes.headers.get('content-type') === 'image/png' &&
+    logoBytes[0] === 137 && logoBytes[1] === 80 && logoBytes[2] === 78 && logoBytes[3] === 71 &&
+    touchRes.status === 200 && touchRes.headers.get('content-type') === 'image/png' &&
     ogPostRes.status === 200 && ogPostRes.headers.get('content-type') === 'image/png' &&
     favRes.status === 200 && (favRes.headers.get('content-type') || '').includes('svg'),
-    `og=${ogBytes.length}B, postOg=${ogPostRes.status}, fav=${favRes.status}`
+    `og=${ogBytes.length}B, logo=${logoBytes.length}B, postOg=${ogPostRes.status}, fav=${favRes.status}`
   );
 
   // Case 6: First-party indexable images (/i/:slug.jpg), uniform 16:9 cards, SwG snippet & CSP
@@ -347,6 +353,9 @@ async function run() {
     uiSitemap.includes('xmlns:image=') && uiSitemap.includes('<image:loc>https://trends.example.com/i/topic-15.jpg</image:loc>') &&
     uiRss.includes('<content:encoded>') && uiRss.includes('https://trends.example.com/i/topic-15.jpg') &&
     imgPostHtml.includes('NewsMediaOrganization') &&
+    imgPostHtml.includes('/logo.png') &&
+    imgPostHtml.includes('viewBox="0 0 100 100"') &&
+    imgHomeHtml.includes('<a class="b f" href="/">') &&
     imgPostHtml.includes('<section id="facts">') && imgPostHtml.includes('<section id="sources">') &&
     imgPostHtml.includes('<div class="r g">') && imgHomeHtml.includes('grid-template-columns:5fr 7fr') &&
     cspHeader.includes("object-src 'none'") &&

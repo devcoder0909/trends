@@ -4,6 +4,7 @@
  */
 
 import { formatDisplayTopic, stripInlineSourceTags } from './config.js';
+import { LOGO_SVG } from './logo.js';
 
 export const PER_PAGE = 10;
 
@@ -118,10 +119,8 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
   const imgUrl = ogImage || (canon ? `${new URL(canon).origin}/og.png` : '/og.png');
   const ogUrl = canon ? `<meta property="og:url" content="${canon}">` : '';
   const preconnect = '<link rel="preconnect" href="https://news.google.com"><link rel="dns-prefetch" href="https://news.google.com">';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
-
-const LOGO_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#34a853"/><path d="M6.5 14.5l4-4 2.5 2.5 4.5-4.5v2.5H19V6.5h-4.5V8H17l-4 4-2.5-2.5-5 5z" fill="#fff"/></svg>';
 
 function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
   const parts = String(siteName || 'Trending Now').trim().split(/\s+/);
@@ -131,7 +130,7 @@ function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
   const tab = (slug, label, href) =>
     `<a${activeTab === slug ? ' class="on"' : ''} href="${href}">${label}</a>`;
   const navLinks = tab('home', 'Home', '/') + NAV_CATEGORIES.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
-  return `<header><div class="w h"><div class="f"><a class="b" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
+  return `<header><div class="w h"><div class="f"><a class="b f" href="/">${LOGO_SVG}<span>${brandHtml}</span></a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
 }
 
 function htmlFoot(email) {
@@ -329,6 +328,12 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
       url: `${siteUrl}/`,
       description: desc,
       inLanguage: 'en',
+      publisher: {
+        '@type': ['Organization', 'NewsMediaOrganization'],
+        name: settings.siteName,
+        url: `${siteUrl}/`,
+        logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.png`, width: 256, height: 256 },
+      },
       potentialAction: {
         '@type': 'SearchAction',
         target: `${siteUrl}/search?q={search_term_string}`,
@@ -363,7 +368,7 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
   let h = htmlHead(title, desc, canon, settings.geos, ldTag, 'website', `${siteUrl}/og.png`);
   h += siteHeader(settings.siteName, 'home') + '<main class="w">';
   if (pg.page > 1) h += renderBackBar([{ label: 'Home', href: '/' }], `Page ${pg.page}`, '/');
-  h += '<div class="f j"><h1 class="f">' + LOGO_SVG + `<span>Top stories${pg.page > 1 ? ` · Page ${pg.page}` : ''}</span></h1>`;
+  h += `<div class="f j"><h1>Top stories${pg.page > 1 ? ` · Page ${pg.page}` : ''}</h1>`;
   if (pg.totalItems) {
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} live briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
@@ -426,7 +431,7 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
     ? [{ label: 'Home', href: '/' }, { label: categoryName, href: `/c/${catSlug}` }]
     : [{ label: 'Home', href: '/' }];
   h += renderBackBar(crumbs, pg.page > 1 ? `Page ${pg.page}` : categoryName, pg.page > 1 ? `/c/${catSlug}` : '/');
-  h += `<div class="f j"><h1 class="f">${LOGO_SVG}<span>${esc(categoryName)}${pg.page > 1 ? ` · Page ${pg.page}` : ''}</span></h1>`;
+  h += `<div class="f j"><h1>${esc(categoryName)}${pg.page > 1 ? ` · Page ${pg.page}` : ''}</h1>`;
   if (pg.totalItems) {
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} ${esc(catLower)} briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
@@ -464,7 +469,7 @@ export function searchPage({ query = '', cat = '', page = 1, results = [], allLi
   let h = htmlHead(title, desc, `${siteUrl}/search`, settings.geos, '', 'website', `${siteUrl}/og.png`, true);
   h += siteHeader(settings.siteName, '', cleanQ) + '<main class="w">';
   h += renderBackBar([{ label: 'Home', href: '/' }], cleanQ ? `Search: ${cleanQ}` : 'Search', '/');
-  h += `<h1 class="f">${LOGO_SVG}<span>${cleanQ ? `Results for "${esc(cleanQ)}"` : 'Search live briefings'}</span></h1>`;
+  h += `<h1>${cleanQ ? `Results for "${esc(cleanQ)}"` : 'Search live briefings'}</h1>`;
 
   // Category filter pills within search
   const activeCats = [...new Set(allLive.map(p => p.category || 'News'))];
@@ -544,7 +549,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
       '@type': ['Organization', 'NewsMediaOrganization'],
       name: settings.siteName,
       url: siteUrl,
-      logo: { '@type': 'ImageObject', url: `${siteUrl}/og.png`, width: 1200, height: 630 },
+      logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.png`, width: 256, height: 256 },
     },
   };
   const breadcrumbLd = {
