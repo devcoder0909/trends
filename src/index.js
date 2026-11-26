@@ -21,17 +21,27 @@ const MAX_TOPICS_PER_TICK = 4; // stays well below Cloudflare's 50 subrequest li
 const isoNow = () => new Date().toISOString();
 const todayStr = () => isoNow().slice(0, 10);
 
+const SECURITY_HEADERS = {
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+};
+
 const SEO_INDEX_HEADERS = {
+  ...SECURITY_HEADERS,
   'Cache-Control': 'public, s-maxage=60, max-age=30, stale-while-revalidate=300',
   'X-Robots-Tag': 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1',
 };
 
 const htmlRes = (body, status = 200, extra = {}) =>
-  new Response(body, { status, headers: { 'Content-Type': 'text/html;charset=utf-8', ...extra } });
+  new Response(body, { status, headers: { 'Content-Type': 'text/html;charset=utf-8', ...SECURITY_HEADERS, ...extra } });
 const textRes = (body, status = 200) =>
-  new Response(body, { status, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+  new Response(body, { status, headers: { 'Content-Type': 'text/plain;charset=utf-8', ...SECURITY_HEADERS } });
 const xmlRes = body =>
-  new Response(body, { headers: { 'Content-Type': 'application/xml;charset=utf-8' } });
+  new Response(body, { headers: { 'Content-Type': 'application/xml;charset=utf-8', 'Cache-Control': 'public, s-maxage=60, max-age=30', ...SECURITY_HEADERS } });
 
 async function logRejected(db, hash, topic, geo, reason, details = '') {
   await db.prepare(
@@ -78,12 +88,12 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso) {
   if (settings.devMode) return;
   const checkCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   const candidates = (await db.prepare(
-    "SELECT id, slug, topic, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 2"
+    "SELECT id, slug, topic, geo, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 2"
   ).bind(nowIso, checkCutoff).all()).results || [];
 
   const updatedUrls = [];
   for (const post of candidates) {
-    const fresh = await fetchGoogleNews(post.topic);
+    const fresh = await fetchGoogleNews(post.topic, post.geo || 'US');
     let existingUrls = [];
     let existingUpdates = [];
     try { existingUrls = JSON.parse(post.source_urls || '[]'); } catch {}
@@ -239,7 +249,7 @@ export async function handleScheduled(env) {
 
     const googleNewsItems = settings.devMode
       ? (MOCK_GOOGLE_NEWS[hash] || [])
-      : await fetchGoogleNews(item.title);
+      : await fetchGoogleNews(item.title, item.geo || 'US');
 
     const merged = mergeSources(item.newsItems, googleNewsItems);
 
@@ -317,6 +327,12 @@ export async function handleScheduled(env) {
 export async function handleFetch(request, env, ctx) {
   const settings = getSettings(env);
   const url = new URL(request.url);
+
+  // Enforce HTTPS redirect on live custom domains
+  if (url.protocol === 'http:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+    return Response.redirect(`https://${url.host}${url.pathname}${url.search}`, 301);
+  }
+
   const siteUrl = `https://${normalizeHost(env.SITE_HOST) || url.host}`;
   const path = url.pathname;
   const db = env.DB;
@@ -324,6 +340,7 @@ export async function handleFetch(request, env, ctx) {
   const nowMs = Date.parse(now);
 
   if (path === `/${env.INDEXNOW_KEY || '_'}.txt`) return textRes(env.INDEXNOW_KEY || '');
+  if (path === '/robots.txt') return textRes(robotsTxt(siteUrl));
 
   const isSiteEnded = Boolean(env.SITE_END_AT && nowMs > Date.parse(env.SITE_END_AT));
   if (isSiteEnded) {
@@ -333,16 +350,40 @@ export async function handleFetch(request, env, ctx) {
     if (liveCount === 0) return htmlRes(endedPage(), 410, { 'X-Robots-Tag': 'noindex' });
   }
 
-  if (path === '/robots.txt') return textRes(robotsTxt(siteUrl));
-  if (path === '/about') return htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS);
+  // Edge Cache API for GET requests (keeps D1 reads near zero under traffic spikes)
+  const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
+  const isCacheableGet = request.method === 'GET' && !isSiteEnded &&
+    (path === '/' || path === '/about' || path === '/sitemap.xml' || path === '/news-sitemap.xml' ||
+     path === '/rss.xml' || path.startsWith('/c/') || path.startsWith('/p/'));
+  const cacheKey = isCacheableGet ? new Request(`https://${url.host}${path}`, { method: 'GET' }) : null;
+
+  if (edgeCache && cacheKey) {
+    const cached = await edgeCache.match(cacheKey);
+    if (cached) {
+      if ((path === '/' || path.startsWith('/p/')) && shouldCountSearchHit(request) && ctx?.waitUntil) {
+        const slug = path === '/' ? null : path.slice(3).replace(/\/+$/, '');
+        ctx.waitUntil(recordSearchHit(db, slug, now));
+      }
+      return cached;
+    }
+  }
+
+  const cacheAndReturn = res => {
+    if (edgeCache && cacheKey && res.status === 200 && ctx?.waitUntil) {
+      ctx.waitUntil(edgeCache.put(cacheKey, res.clone()));
+    }
+    return res;
+  };
+
+  if (path === '/about') return cacheAndReturn(htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS));
 
   const live = async () => (await db.prepare(
     "SELECT * FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC"
   ).bind(now).all()).results || [];
 
-  if (path === '/sitemap.xml') return xmlRes(sitemapXml(await live(), siteUrl));
-  if (path === '/news-sitemap.xml') return xmlRes(newsSitemapXml(await live(), siteUrl, settings.siteName, nowMs));
-  if (path === '/rss.xml') return xmlRes(rssFeed(await live(), siteUrl, settings.siteName));
+  if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await live(), siteUrl)));
+  if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await live(), siteUrl, settings.siteName, nowMs)));
+  if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await live(), siteUrl, settings.siteName)));
 
   // Home page — all live posts in full, cached 60s at edge
   if (path === '/') {
@@ -351,10 +392,10 @@ export async function handleFetch(request, env, ctx) {
     }
     const posts = await live();
     const lastMod = posts[0] ? new Date(posts[0].updated_at || posts[0].created_at).toUTCString() : new Date(nowMs).toUTCString();
-    return htmlRes(homePage(posts, settings, siteUrl, nowMs), 200, {
+    return cacheAndReturn(htmlRes(homePage(posts, settings, siteUrl, nowMs), 200, {
       ...SEO_INDEX_HEADERS,
       'Last-Modified': lastMod,
-    });
+    }));
   }
 
   // Category hub pages (/c/{category}) for clean BreadcrumbList & hub-and-spoke SEO
@@ -362,14 +403,14 @@ export async function handleFetch(request, env, ctx) {
     const catSlug = path.slice(3).replace(/\/+$/, '').toLowerCase();
     const knownNames = [...PREFERRED_CATEGORIES, 'News'];
     const catName = knownNames.find(c => slugify(c) === catSlug);
-    if (!catName) return new Response('Not Found', { status: 404 });
+    if (!catName) return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
 
     const allLive = await live();
     const filtered = allLive.filter(p => slugify(p.category || 'News') === catSlug);
     const headers = filtered.length
       ? SEO_INDEX_HEADERS
-      : { 'Cache-Control': 'public, s-maxage=60, max-age=30', 'X-Robots-Tag': 'noindex, follow' };
-    return htmlRes(categoryPage(catName, filtered, settings, siteUrl, nowMs), 200, headers);
+      : { ...SECURITY_HEADERS, 'Cache-Control': 'public, s-maxage=60, max-age=30', 'X-Robots-Tag': 'noindex, follow' };
+    return cacheAndReturn(htmlRes(categoryPage(catName, filtered, settings, siteUrl, nowMs), 200, headers));
   }
 
   // Individual post page
@@ -389,17 +430,17 @@ export async function handleFetch(request, env, ctx) {
       const diffCat = others.filter(p => (p.category || 'News') !== (post.category || 'News'));
       const related = [...sameCat, ...diffCat].slice(0, 6);
 
-      return htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, {
+      return cacheAndReturn(htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, {
         ...SEO_INDEX_HEADERS,
         'Last-Modified': new Date(post.updated_at || post.created_at).toUTCString(),
-      });
+      }));
     }
 
     const wasSeen = await db.prepare('SELECT 1 FROM seen_topics WHERE slug = ?').bind(slug).first();
     return htmlRes(gonePage(), (wasSeen || isSiteEnded) ? 410 : 404, { 'X-Robots-Tag': 'noindex, follow' });
   }
 
-  return new Response('Not Found', { status: 404 });
+  return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
 }
 
 // ══════════════════════════════════════════════════════════════

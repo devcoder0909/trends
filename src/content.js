@@ -228,7 +228,7 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
     if (words.length === 1 && SKIP_PROPER_WORDS.has(clean.toLowerCase())) continue;
     if (lowerCorpus.includes(clean.toLowerCase())) continue;
     const missingToken = words.find(w => {
-      const lw = w.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const lw = w.replace(/['’]s$/i, '').toLowerCase().replace(/[^a-z0-9]/g, '');
       return lw.length > 2 && !SKIP_PROPER_WORDS.has(lw) && !COMMON_ACRONYMS.has(w.toUpperCase()) && !lowerCorpus.includes(lw);
     });
     if (missingToken) {
@@ -277,7 +277,7 @@ SOURCES:
 ${formattedSources}
 ${feedbackBlock}
 WRITING RULES:
-1. Grade 8 reading level, short clear sentences, no hype, no clickbait, no emojis, no filler intros, no "in conclusion".
+1. Write EVERY JSON value in clear English (Grade 8 reading level), even if any source headline includes non-English text. Short sentences, no hype, no clickbait, no emojis, no filler intros, no "in conclusion".
 2. Do NOT mention being an AI. Do NOT use "shocking", "you won't believe", or "breaking" (unless "breaking" is in SOURCES).
 3. Define who or what "${topic}" is in the first sentence of what_happened (full name + role, or clarify which meaning applies).
 4. Use exact dates, times, and numbers from SOURCES. If details are unconfirmed or sources differ, write "reported but not confirmed".

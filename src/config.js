@@ -79,7 +79,7 @@ export const normalizeHost = raw =>
 
 export function getSettings(env = {}) {
   return {
-    maxDaily: Math.max(1, Number(env.MAX_DAILY || 40)),
+    maxDaily: Math.max(1, Number(env.MAX_DAILY || 60)),
     baseTtlHours: Math.max(1, Number(env.BASE_TTL_HOURS || 48)),
     extendedTtlHours: Math.max(1, Number(env.EXTENDED_TTL_HOURS || 168)),
     extendMinHits: Math.max(1, Number(env.EXTEND_MIN_HITS || 1)),
@@ -88,7 +88,7 @@ export function getSettings(env = {}) {
     siteHost: normalizeHost(env.SITE_HOST) || 'trends.example.com',
     siteName: env.SITE_NAME || 'Trending Now',
     contactEmail: env.CONTACT_EMAIL || 'admin@example.com',
-    geos: (env.GEO_LIST || 'US')
+    geos: (env.GEO_LIST || 'US,GB,CA,AU,IN')
       .split(',')
       .map(g => g.trim().toUpperCase())
       .filter(Boolean),

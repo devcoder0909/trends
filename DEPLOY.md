@@ -90,7 +90,8 @@ Edit `wrangler.toml` → `[vars]`:
 | `SITE_HOST` | Your domain (no `https://`) | `trends.example.com` |
 | `SITE_NAME` | Site & JSON-LD publisher name | `Trending Now` |
 | `CONTACT_EMAIL` | Your contact email (E-E-A-T footer & `/about`) | `you@example.com` |
-| `GEO_LIST` | Comma-separated country codes (`hreflang` activates when >1) | `US` or `US,GB,IN` |
+| `GEO_LIST` | Comma-separated country codes (`hreflang` activates when >1) | `US,GB,CA,AU,IN` |
+| `MAX_DAILY` | Daily published post cap | `60` |
 | `INDEXNOW_KEY` | Random 32-char hex string | `a1b2c3d4...` |
 | `BASE_TTL_HOURS` | Default post lifetime in hours | `48` |
 | `EXTENDED_TTL_HOURS` | Extended lifetime in hours (7 days = 168) | `168` |
@@ -209,6 +210,17 @@ Trigger a local cron tick in another terminal:
 ```bash
 curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"
 ```
+
+---
+
+## Scaling & High-Traffic Guide (100K+ to 1M+/day)
+
+- **Free Tier Limits**: Cloudflare Workers Free includes **100,000 Worker requests/day** and D1 Free includes **5M row reads/day**.
+- **Edge Caching (`caches.default`)**: The Worker caches 200 responses at the edge (`s-maxage=60`) so repeated hits avoid D1 reads while still recording search-engine referrals asynchronously.
+- **Scaling Beyond 100K/day on Cloudflare**:
+  1. Enable **Always Use HTTPS** (SSL/TLS → Edge Certificates) and add a **Redirect Rule** from `www.trendingrightnow.online/*` → `https://trendingrightnow.online/$1` (301).
+  2. Add a **Cloudflare Cache Rule** (`Caching → Cache Rules`) matching `trendingrightnow.online/*` (excluding `/{INDEXNOW_KEY}.txt`) with **Eligible for cache** and **Edge TTL = Respect origin** (`60s`) so Cloudflare's CDN serves traffic spikes before Worker quota is used.
+  3. Upgrade to **Workers Paid ($5/month)** if uncached dynamic requests exceed 100,000/day (includes 10M requests/month + higher D1/Workers AI capacity).
 
 ---
 

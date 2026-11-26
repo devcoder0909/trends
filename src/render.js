@@ -124,7 +124,7 @@ function renderPostBody(post, livePosts, nowMs, { isHome = false } = {}) {
     h += `<p>${esc(whatHappened)}</p>`;
   }
   if (whyTrending) {
-    if (!isHome) h += '<h2 class="sec">Why It Is Trending</h2>';
+    if (!isHome) h += `<h2 class="sec">Why ${esc(post.topic || 'This')} Is Trending</h2>`;
     h += `<p>${esc(whyTrending)}</p>`;
   }
   if (keyFacts.length) {

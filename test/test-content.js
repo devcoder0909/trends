@@ -119,9 +119,17 @@ async function run() {
   const existingTitles = new Set();
 
   // Verify ranking places high-traffic multi-source topics above low-traffic ones
-  const ranked = rankTopics(MOCK_TOPICS.map(t => ({ title: t.topic, approxTraffic: t.approxTraffic, newsItems: t.sources })));
+  const ranked = rankTopics(MOCK_TOPICS.map(t => ({ title: t.topic, approxTraffic: t.approxTraffic, newsItems: t.sources, geo: 'US' })));
   if (ranked[0].title !== 'Highway Pileup Death Toll' || ranked[ranked.length - 1].title !== 'Oakwood Harvest Fair') {
     console.error('FAIL: topic ranking order unexpected');
+    failures++;
+  }
+  const multiGeo = rankTopics([
+    { title: 'Global Event', approxTraffic: 100000, geo: 'GB', newsItems: [{ title: 'A', source: 'BBC', snippet: '' }] },
+    { title: 'Global Event', approxTraffic: 100000, geo: 'US', newsItems: [{ title: 'B', source: 'CNN', snippet: '' }] },
+  ]);
+  if (multiGeo.length !== 1 || multiGeo[0].geo !== 'US' || multiGeo[0].approxTraffic !== 200000) {
+    console.error('FAIL: multi-geo merge/US priority unexpected');
     failures++;
   }
 
