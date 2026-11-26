@@ -213,8 +213,10 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
   }
 
   for (const [abbr, full] of [...MONTH_NAMES, ...DAY_NAMES]) {
-    const re = new RegExp(`\\b(${abbr}|${full})\\b`, 'i');
-    if (re.test(fullText) && !re.test(sourceCorpus)) {
+    const capAbbr = abbr[0].toUpperCase() + abbr.slice(1);
+    const capFull = full[0].toUpperCase() + full.slice(1);
+    const re = new RegExp(`\\b(${capAbbr}|${capFull})\\b`);
+    if (re.test(fullText) && !new RegExp(`\\b(${capAbbr}|${capFull})\\b`, 'i').test(sourceCorpus)) {
       return { ok: false, reason: `unsupported date term: ${full}` };
     }
   }
