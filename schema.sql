@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS topics (
 
 CREATE INDEX IF NOT EXISTS idx_topics_expires  ON topics(expires_at);
 CREATE INDEX IF NOT EXISTS idx_topics_status   ON topics(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_topics_live     ON topics(status, expires_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_extended ON topics(extended, search_hits);
 
 -- Dedup table: remembers every processed/rejected topic for 7 days
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS seen_topics (
   slug       TEXT NOT NULL,
   seen_at    TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_seen_at ON seen_topics(seen_at);
 
 -- Hold queue: topics waiting up to 30 minutes to reach >= 2 distinct outlets
 CREATE TABLE IF NOT EXISTS pending_topics (
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS pending_topics (
   last_tried_at  TEXT    NOT NULL,
   retry_count    INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_pending_first_seen ON pending_topics(first_seen_at);
 
 -- Audit log of rejected topics for review
 CREATE TABLE IF NOT EXISTS rejected (

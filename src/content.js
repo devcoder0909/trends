@@ -3,14 +3,14 @@
  * strict JSON parsing, grounding verification, deterministic repair & failsafe.
  */
 
-import { BANNED_PHRASES, classifyCategory, isSensitive, findSensitiveMatch } from './config.js';
+import { BANNED_PHRASES, classifyCategory, isSensitive, findSensitiveMatch, formatDisplayTopic } from './config.js';
 
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 
+// Ultra-efficient quantized models (~11-13 Neurons/article vs ~55-120 on 17B/70B)
 const WORKERS_AI_MODELS = [
-  '@cf/meta/llama-4-scout-17b-16e-instruct',
-  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  '@cf/google/gemma-4-26b-a4b-it',
+  '@cf/meta/llama-3.1-8b-instruct-fp8-fast',
+  '@cf/meta/llama-3.2-3b-instruct',
   '@cf/meta/llama-3.1-8b-instruct-fast',
 ];
 
@@ -20,11 +20,27 @@ const GEMINI_FALLBACK_MODELS = [
   'gemini-2.0-flash',
 ];
 
-// Cached per Worker isolate to avoid wasting subrequests rediscovering working models
+// Isolate-level caches & free-tier quota circuit breakers
 let cachedAiModel = null;
 let cachedGeminiModel = null;
 let cachedGeminiModelList = null;
 let cachedGeminiListExp = 0;
+let workersAiBlockedUntil = 0;
+const geminiBlockedUntil = new Map();
+
+const nextUtcMidnightMs = (nowMs = Date.now()) => {
+  const d = new Date(nowMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 1, 0);
+};
+
+export function __resetAiCooldowns() {
+  cachedAiModel = null;
+  cachedGeminiModel = null;
+  cachedGeminiModelList = null;
+  cachedGeminiListExp = 0;
+  workersAiBlockedUntil = 0;
+  geminiBlockedUntil.clear();
+}
 
 const MONTH_NAMES = [
   ['jan', 'january'], ['feb', 'february'], ['mar', 'march'], ['apr', 'april'],
@@ -174,7 +190,11 @@ function repairDraft(draft, topic, sources) {
   out.summary = stripBreaking(out.summary);
   if (countSentences(out.summary) > 1) {
     const one = firstSentence(out.summary);
-    if (countWords(one) >= 8) out.summary = one;
+    if (countWords(one) >= 5) out.summary = one;
+  }
+  if (countWords(out.summary) > 29 && out.what_happened) {
+    const lead = firstSentence(out.what_happened);
+    if (countWords(lead) >= 5 && countWords(lead) <= 29) out.summary = lead;
   }
 
   const validOutlets = sources.map(s => (s.source || '').trim()).filter(Boolean);
@@ -321,43 +341,43 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
 }
 
 export function buildWriterPrompt(topic, category, sources, feedback = '') {
+  const displayTopic = formatDisplayTopic(topic) || topic;
   const formattedSources = sources
-    .slice(0, 10)
+    .slice(0, 6)
     .map(s => {
-      const time = s.pubDate ? ` | ${s.pubDate}` : '';
-      const snip = s.snippet ? ` — ${s.snippet}` : '';
+      const time = s.pubDate ? ` | ${s.pubDate.slice(0, 22)}` : '';
+      const rawSnip = (s.snippet || '').trim();
+      const snip = rawSnip ? ` — ${rawSnip.slice(0, 160)}` : '';
       return `• [${s.source}${time}] ${s.title}${snip}`;
     })
     .join('\n');
 
   const feedbackBlock = feedback
-    ? `\nIMPORTANT FIX FOR RETRY: Previous draft failed validation because: ${feedback}. Fix this exact issue cleanly.\n`
+    ? `\nFIX: ${feedback}\n`
     : '';
 
-  return `You are a neutral news editor writing a factual briefing for "${topic}" (category: ${category}).
-Use ONLY facts, names, organizations, dates, and numbers printed verbatim in SOURCES below. NEVER add release years, historical trivia, parent companies, expanded acronyms (like UEFA/UGA), or facts from memory.
+  return `Neutral news editor writing a factual ${category} briefing on "${displayTopic}".
+ONLY use facts, names, dates, and numbers printed verbatim in SOURCES. Never invent years, parent companies, or expand acronyms.
 
 SOURCES:
 ${formattedSources}
 ${feedbackBlock}
-WRITING RULES:
-1. Write EVERY JSON value in clear English (Grade 8 reading level), even if a headline uses another language. No hype, no clickbait, no emojis, no "in conclusion", no "as an AI".
-2. NEVER write "breaking" unless that exact word appears in SOURCES. Never write "shocking" or "you won't believe".
-3. Define who or what "${topic}" is in the first sentence of what_happened using ONLY facts from SOURCES.
-4. Target 165 to 225 words total across summary + what_happened + why_trending + key_facts + what_to_know_next (minimum 120 words, maximum 260 words).
-5. Write summary as EXACTLY ONE crisp sentence (15-26 words) that directly answers why "${topic}" is trending.
-6. EVERY bullet in key_facts MUST end with the exact source outlet name inside square brackets, like: "Team A won 2-1 in London [ESPN]."
+RULES:
+1. Plain English (Grade 8 level). No clickbait, emojis, "breaking" (unless in SOURCES), "shocking", or "in conclusion".
+2. Total 145-210 words across summary, what_happened, why_trending, key_facts, what_to_know_next (min 120, max 260).
+3. summary: ONE single sentence (15-26 words) stating why ${displayTopic} is trending.
+4. key_facts: 3-4 bullets, EACH ending with [Exact Outlet Name].
 
-OUTPUT ONLY VALID JSON (no markdown fences):
+JSON ONLY:
 {
-  "title": "<STRICTLY <= 55 chars, plain search-intent headline including ${topic}>",
+  "title": "<SEO headline <=58 chars with ${displayTopic}>",
   "category": "${category}",
-  "summary": "<ONE single sentence, 15-26 words>",
-  "what_happened": "<3 concise sentences (55-80 words) covering who, what, when, where>",
-  "why_trending": "<2 sentences (30-45 words) explaining current search interest>",
-  "key_facts": ["<fact 1 [Outlet]>", "<fact 2 [Outlet]>", "<fact 3 [Outlet]>", "<fact 4 [Outlet]>"],
-  "what_to_know_next": "<1-2 sentences (25-40 words) on upcoming timing or unconfirmed details>",
-  "also_searched": ["<related query 1 from sources>", "<related query 2>", "<related query 3>"]
+  "summary": "<ONE sentence, 15-26 words>",
+  "what_happened": "<3 sentences (50-75 words) covering who, what, when, where>",
+  "why_trending": "<2 sentences (28-45 words) on current search interest>",
+  "key_facts": ["<fact 1 [Outlet]>", "<fact 2 [Outlet]>", "<fact 3 [Outlet]>"],
+  "what_to_know_next": "<1-2 sentences (22-38 words) on upcoming timing or unconfirmed details>",
+  "also_searched": ["<related query 1>", "<related query 2>", "<related query 3>"]
 }`;
 }
 
@@ -400,15 +420,78 @@ async function discoverGeminiModels(env) {
 }
 
 /**
- * Call Workers AI with isolate-level caching and fast subrequest circuit-breaking,
- * falling back seamlessly to Gemini free API.
+ * Smart free-tier router:
+ * 1. Gemini Free (1,000 RPD on Flash-Lite, 0 Workers AI Neurons) when GEMINI_API_KEY is configured
+ * 2. Lightweight quantized Workers AI (@cf/meta/llama-3.1-8b-instruct-fp8-fast / 3.2-3b) within 10k Neurons/day
+ * 3. Isolate quota circuit-breakers prevent retrying exhausted providers
  */
 export async function callLLM(env, prompt, budget = null) {
   const errors = [];
+  const nowMs = Date.now();
   const canCall = () => !budget || budget.remaining() > 0;
 
-  if (env.AI && canCall()) {
-    // Only try cached model first, or max 2 models per invocation to protect Cloudflare's 50-subrequest limit
+  const tryGemini = async () => {
+    if (!env.GEMINI_API_KEY || !canCall()) return null;
+    const staticModels = [...new Set([env.GEMINI_MODEL, cachedGeminiModel, ...GEMINI_FALLBACK_MODELS].filter(Boolean))];
+    let activeModels = staticModels.filter(m => (geminiBlockedUntil.get(m) || 0) <= nowMs);
+    if (!activeModels.length && canCall()) {
+      const discovered = await discoverGeminiModels(env);
+      activeModels = discovered.filter(m => (geminiBlockedUntil.get(m) || 0) <= nowMs);
+    }
+    for (const model of activeModels.slice(0, 2)) {
+      if (!canCall()) break;
+      if (budget) budget.spend(1);
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 520 },
+            }),
+          }
+        );
+        if (!res.ok) {
+          errors.push(`Gemini ${model}: HTTP ${res.status}`);
+          if (res.status === 429 || res.status === 403 || res.status === 404) {
+            geminiBlockedUntil.set(model, Date.now() + (res.status === 404 ? 6 * 3600_000 : 15 * 60_000));
+            if (model === cachedGeminiModel) cachedGeminiModel = null;
+          }
+          continue;
+        }
+        const json = await res.json();
+        const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        if (text) {
+          cachedGeminiModel = model;
+          return text;
+        }
+        errors.push(`Gemini ${model}: empty text`);
+      } catch (err) {
+        errors.push(`Gemini ${model}: ${err.message}`);
+        if (/too many subrequests/i.test(err.message)) {
+          const fatal = new Error(errors.join('; '));
+          fatal.fatalSubrequest = true;
+          throw fatal;
+        }
+      }
+    }
+    return null;
+  };
+
+  const tryWorkersAi = async () => {
+    if (!env.AI) {
+      errors.push('Workers AI binding missing');
+      return null;
+    }
+    if (nowMs < workersAiBlockedUntil) {
+      errors.push('Workers AI daily neuron quota cooled down until UTC reset');
+      return null;
+    }
+    if (!canCall()) return null;
+
     const aiModels = [...new Set([env.AI_MODEL, cachedAiModel, ...WORKERS_AI_MODELS].filter(Boolean))].slice(0, 2);
     for (const model of aiModels) {
       if (!canCall()) break;
@@ -416,7 +499,7 @@ export async function callLLM(env, prompt, budget = null) {
       try {
         const res = await env.AI.run(model, {
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 750,
+          max_tokens: 460,
           temperature: 0.2,
         });
         const text = extractAiText(res);
@@ -432,62 +515,33 @@ export async function callLLM(env, prompt, budget = null) {
           fatal.fatalSubrequest = true;
           throw fatal;
         }
+        if (/4006|10,000 neurons|daily free allocation|quota/i.test(err.message)) {
+          workersAiBlockedUntil = nextUtcMidnightMs(nowMs);
+          if (model === cachedAiModel) cachedAiModel = null;
+          break;
+        }
         if (model === cachedAiModel) cachedAiModel = null;
       }
     }
-  } else if (!env.AI) {
-    errors.push('Workers AI binding missing');
-  }
+    return null;
+  };
+
+  // Prefer Gemini Free first when configured (saves Workers AI 10k Neurons/day), then light Workers AI
+  const primaryText = await tryGemini();
+  if (primaryText) return primaryText;
+
+  const aiText = await tryWorkersAi();
+  if (aiText) return aiText;
 
   if (!env.GEMINI_API_KEY) {
-    throw new Error(`LLM unavailable (${errors.join('; ')})`);
+    errors.push('Gemini key unset');
   }
   if (!canCall()) {
-    const fatal = new Error('Subrequest budget reserved');
+    const fatal = new Error(errors.join('; ') || 'Subrequest budget reserved');
     fatal.fatalSubrequest = true;
     throw fatal;
   }
-
-  const geminiModels = await discoverGeminiModels(env);
-  for (const model of geminiModels.slice(0, 2)) {
-    if (!canCall()) break;
-    if (budget) budget.spend(1);
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-          }),
-        }
-      );
-      if (!res.ok) {
-        errors.push(`Gemini ${model}: HTTP ${res.status}`);
-        if (model === cachedGeminiModel) cachedGeminiModel = null;
-        continue;
-      }
-      const json = await res.json();
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      if (text) {
-        cachedGeminiModel = model;
-        return text;
-      }
-      errors.push(`Gemini ${model}: empty text`);
-    } catch (err) {
-      errors.push(`Gemini ${model}: ${err.message}`);
-      if (/too many subrequests/i.test(err.message)) {
-        const fatal = new Error(errors.join('; '));
-        fatal.fatalSubrequest = true;
-        throw fatal;
-      }
-    }
-  }
-
-  throw new Error(errors.join('; '));
+  throw new Error(errors.join('; ') || 'LLM unavailable');
 }
 
 async function verifyWithLLM(env, draft, topic, sources, budget = null) {
@@ -522,45 +576,47 @@ Reply ONLY with JSON: {"ok":true} or {"ok":false,"reason":"<unsupported item>"}`
  * Used in DEV_MODE and as an unbreakable failsafe when LLM infra hits quotas/limits.
  */
 export function mockGenerate(topic, category, sources) {
+  const displayTopic = formatDisplayTopic(topic) || topic;
   const s = sources.filter(x => x && x.title && x.source);
   const primary = s[0] || {};
   const secondary = s[1] || primary;
   const tertiary = s[2] || secondary;
   const fourth = s[3] || tertiary;
 
+  const s1 = (primary.title || displayTopic).replace(/[.!?]+$/, '');
+  const s2 = (secondary.title || displayTopic).replace(/[.!?]+$/, '');
+  const s3 = (tertiary.title || displayTopic).replace(/[.!?]+$/, '');
+  const s4 = (fourth.snippet || fourth.title || displayTopic).replace(/[.!?]+$/, '');
+
+  const isMatchResult = category === 'Sports' && /\b(vs\.?|beats|defeats|win|wins|score|match|game)\b/i.test(`${topic} ${s1}`);
   const titleTemplates = {
-    Sports: `${topic} Match Result and Latest Score`,
-    Tech: `${topic} Announcement: Key Details and Status`,
-    Entertainment: `${topic} Release Details and Updates`,
-    Weather: `${topic} Weather Forecast and Advisories`,
-    Science: `${topic} Mission Findings and Latest Update`,
-    Business: /\bearnings\b/i.test(topic) ? `${topic} Report and Market Reaction` : `${topic} Earnings Report and Market Reaction`,
-    Gaming: `${topic} Game Release Date and Details`,
-    Holidays: `${topic} Holiday Schedule and Key Details`,
-    News: `Why Is ${topic} Trending? What Happened`,
+    Sports: isMatchResult ? `${displayTopic} Match Result and Latest Score` : `${displayTopic}: Latest Sports Updates and Reports`,
+    Tech: `${displayTopic} Announcement: Key Details and Status`,
+    Entertainment: `${displayTopic} Release Details and Updates`,
+    Weather: `${displayTopic} Weather Forecast and Advisories`,
+    Science: `${displayTopic} Mission Findings and Latest Update`,
+    Business: /\bearnings\b/i.test(displayTopic) ? `${displayTopic} Report and Market Reaction` : `${displayTopic}: Business Updates and Reports`,
+    Gaming: `${displayTopic} Game Release Date and Details`,
+    Holidays: `${displayTopic} Holiday Schedule and Key Details`,
+    News: `Why Is ${displayTopic} Trending? What Happened`,
   };
-  let title = titleTemplates[category] || `Why Is ${topic} Trending? What Happened`;
+  let title = titleTemplates[category] || `Why Is ${displayTopic} Trending? What Happened`;
   if (title.length > 60) {
-    title = `${topic.slice(0, 40)} — Latest Update`.slice(0, 60);
-    if (title.length > 60) title = topic.slice(0, 60).trim();
+    title = `${displayTopic.slice(0, 40)} — Latest Update`.slice(0, 60);
+    if (title.length > 60) title = displayTopic.slice(0, 60).trim();
   }
 
-  const s1 = (primary.title || topic).replace(/[.!?]+$/, '');
-  const s2 = (secondary.title || topic).replace(/[.!?]+$/, '');
-  const s3 = (tertiary.title || topic).replace(/[.!?]+$/, '');
-  const s4 = (fourth.snippet || fourth.title || topic).replace(/[.!?]+$/, '');
-
-  const summary = `${topic} is trending following recent reports from ${primary.source || 'news outlets'} and ${secondary.source || 'media sources'}.`;
+  const summary = `${displayTopic} is trending following recent reports from ${primary.source || 'news outlets'} and ${secondary.source || 'media sources'}.`;
   const trimmedSummary = countWords(summary) > 28
-    ? `${topic} is trending across multiple verified news outlets.`
+    ? `${displayTopic} is trending across multiple verified news outlets.`
     : summary;
 
   const snip1 = primary.snippet ? `${primary.snippet.replace(/[.!?]+$/, '')}.` : '';
   const snip2 = secondary.snippet ? `${secondary.snippet.replace(/[.!?]+$/, '')}.` : '';
 
-  const what_happened = `${topic} drew widespread ${category.toLowerCase()} coverage across major news feeds as new updates appeared online. According to ${primary.source || 'reports'}, ${s1}. ${snip1} Separate coverage from ${secondary.source || 'outlets'} noted that ${s2}. ${snip2}`.replace(/\s+/g, ' ').trim();
+  const what_happened = `${displayTopic} drew widespread ${category.toLowerCase()} coverage across major news feeds as new updates appeared online. According to ${primary.source || 'reports'}, ${s1}. ${snip1} Separate coverage from ${secondary.source || 'outlets'} noted that ${s2}. ${snip2}`.replace(/\s+/g, ' ').trim();
 
-  const why_trending = `Search interest around ${topic} climbed rapidly after several news publishers released simultaneous updates and reporting on the story. Readers are looking for confirmed timelines, verified details, and primary coverage from listed news outlets.`;
+  const why_trending = `Search interest around ${displayTopic} climbed rapidly after several news publishers released simultaneous updates and reporting on the story. Readers are looking for confirmed timelines, verified details, and primary coverage from listed news outlets.`;
 
   const bulletsRaw = [
     `${s1} [${primary.source || 'News'}].`,
@@ -571,10 +627,10 @@ export function mockGenerate(topic, category, sources) {
     bulletsRaw.push(`${s4} [${fourth.source || tertiary.source || 'News'}].`);
   }
 
-  const what_to_know_next = `Further official details and follow-up updates on ${topic} remain reported as developments continue. Any unverified claims outside these cited news outlets have not been officially confirmed yet.`;
+  const what_to_know_next = `Further official details and follow-up updates on ${displayTopic} remain reported as developments continue. Any unverified claims outside these cited news outlets have not been officially confirmed yet.`;
 
   const also_searched = [
-    `${topic} update`,
+    `${displayTopic} update`,
     s1.split(/\s+/).slice(0, 4).join(' '),
     s2.split(/\s+/).slice(0, 4).join(' '),
   ];
@@ -623,8 +679,8 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
   let lastReason = 'validation failed';
   let infraFailures = 0;
 
-  // Keep LLM attempts to 2 (saves subrequests cleanly) unless deterministic customGenerator test
-  const maxAttempts = typeof options.customGenerator === 'function' ? 3 : 2;
+  // Single LLM attempt per topic maximizes free-tier quota; grounded mockGenerate catches any quality/quota miss
+  const maxAttempts = typeof options.customGenerator === 'function' ? 3 : 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let draft;

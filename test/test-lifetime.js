@@ -356,6 +356,25 @@ async function run() {
     `llms=${llmsRes.status}, www301=${wwwHttps.status}/${wwwHttp.status}`
   );
 
+  // Case 8: D1 free-tier write cap (stops updating after 5 hits / extended=1) & Discover 1200px image + Title Case H2
+  uiDb.sqlite.prepare("UPDATE topics SET topic = 'shein', title = 'Shein Consumer Settlement' WHERE slug = 'topic-15'").run();
+  for (let i = 0; i < 8; i++) {
+    await handleFetch(new Request('https://trends.example.com/p/topic-15', {
+      method: 'GET',
+      headers: { Referer: 'https://www.google.com/', 'User-Agent': 'Mozilla/5.0 Chrome/131.0' },
+    }), uiEnv, ctx);
+  }
+  await ctx.flush();
+  const cappedHits = uiDb.sqlite.prepare("SELECT search_hits FROM topics WHERE slug = 'topic-15'").get().search_hits;
+  const sheinHtml = await (await handleFetch(new Request('https://trends.example.com/p/topic-15'), uiEnv, ctx)).text();
+  record(
+    'D1 hit writes cap at 5/post for free tier, H2 topic title-cased & Discover 1200px image first',
+    cappedHits === 5 &&
+    sheinHtml.includes('<h2>Why Shein Is Trending</h2>') &&
+    sheinHtml.includes('"width":1200,"height":630'),
+    `cappedHits=${cappedHits}`
+  );
+
   const failed = results.filter(r => !r.ok).length;
   console.log(`\nTotal failures: ${failed}`);
   process.exit(failed ? 1 : 0);

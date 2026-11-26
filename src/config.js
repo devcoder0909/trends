@@ -77,6 +77,31 @@ export function classifyCategory(topic, contextText = '') {
 export const normalizeHost = raw =>
   String(raw || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
 
+const DISPLAY_ACRONYMS = new Set([
+  'US', 'UK', 'EU', 'UN', 'AI', 'TV', 'QB', 'RB', 'WR', 'CEO', 'CFO', 'CTO',
+  'GDP', 'SEC', 'FDA', 'NASA', 'NFL', 'NBA', 'MLB', 'NHL', 'NCAA', 'FIFA',
+  'UEFA', 'UFC', 'F1', 'IPL', 'WWE', 'PS5', 'GTA', 'DLC', 'IOS', 'PC',
+]);
+const MINOR_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'for', 'of', 'in', 'on', 'at', 'to', 'vs', 'v', 'with', 'over', 'by']);
+
+/**
+ * Format raw lowercase Google Trends queries into readable editorial Title Case
+ * while preserving uppercase acronyms (NFL, AI, QB, US) and existing mixed-case brands.
+ */
+export function formatDisplayTopic(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/[A-Z]/.test(s) && /[a-z]/.test(s)) return s;
+  const words = s.split(/\s+/);
+  return words.map((w, i) => {
+    const bare = w.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    if (DISPLAY_ACRONYMS.has(bare)) return w.toUpperCase();
+    const low = w.toLowerCase();
+    if (i > 0 && i < words.length - 1 && MINOR_WORDS.has(low)) return low;
+    return low.charAt(0).toUpperCase() + low.slice(1);
+  }).join(' ');
+}
+
 export function getSettings(env = {}) {
   return {
     maxDaily: Math.max(1, Number(env.MAX_DAILY || 200)),

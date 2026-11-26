@@ -5,7 +5,8 @@
  * pipeline and verifies quality-gate rejections.
  */
 
-import { generateAndValidatePost, validateDraft } from '../src/content.js';
+import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
+import { formatDisplayTopic } from '../src/config.js';
 import { rankTopics } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
 import { isNearDuplicateTopic } from '../src/index.js';
@@ -262,6 +263,47 @@ async function run() {
   } else {
     console.log('[PASS] Near-duplicate topic detection verified');
   }
+
+  // Verify free-tier AI routing (Gemini-first + 4006 Workers AI circuit breaker) & Display Topic Title Case
+  if (formatDisplayTopic('derrick moore') !== 'Derrick Moore' ||
+      formatDisplayTopic('bears qb') !== 'Bears QB' ||
+      formatDisplayTopic('nfl') !== 'NFL') {
+    console.error('[FAIL] formatDisplayTopic title casing check failed');
+    failures++;
+  } else {
+    console.log('[PASS] formatDisplayTopic preserves acronyms & Title Cases lowercase trends');
+  }
+
+  __resetAiCooldowns();
+  let aiCalls = 0;
+  let workersAiCallsAfter4006 = 0;
+  try {
+    await callLLM({
+      AI: {
+        run() {
+          workersAiCallsAfter4006++;
+          throw new Error('4006: you have used up your daily free allocation of 10,000 neurons');
+        },
+      },
+    }, 'test');
+  } catch {}
+  try {
+    await callLLM({
+      AI: {
+        run() {
+          aiCalls++;
+          return { response: 'should be skipped by cooldown' };
+        },
+      },
+    }, 'test');
+  } catch {}
+  if (workersAiCallsAfter4006 !== 1 || aiCalls !== 0) {
+    console.error(`[FAIL] Workers AI 4006 circuit breaker expected 1 then 0 calls, got ${workersAiCallsAfter4006}, ${aiCalls}`);
+    failures++;
+  } else {
+    console.log('[PASS] Workers AI 4006 daily quota circuit breaker stops wasted subrequests');
+  }
+  __resetAiCooldowns();
 
   console.log(`\nTotal failures: ${failures}`);
   process.exit(failures ? 1 : 0);

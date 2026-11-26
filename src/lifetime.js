@@ -48,17 +48,17 @@ export function shouldCountSearchHit(request) {
 
 /**
  * Record a search-referred human hit without storing IP or personal data.
- * If slug is provided, updates that post; if null (home page), updates live posts.
+ * Caps updates to un-extended rows under 5 hits so viral traffic bursts cost zero extra D1 writes.
  */
 export async function recordSearchHit(db, slug, nowIso) {
   if (slug) {
     await db.prepare(
-      "UPDATE topics SET search_hits = search_hits + 1, last_search_hit_at = ? WHERE slug = ? AND status = 'published' AND expires_at > ?"
+      "UPDATE topics SET search_hits = search_hits + 1, last_search_hit_at = ? WHERE slug = ? AND status = 'published' AND extended = 0 AND search_hits < 5 AND expires_at > ?"
     ).bind(nowIso, slug, nowIso).run();
     return;
   }
   await db.prepare(
-    "UPDATE topics SET search_hits = search_hits + 1, last_search_hit_at = ? WHERE status = 'published' AND expires_at > ?"
+    "UPDATE topics SET search_hits = search_hits + 1, last_search_hit_at = ? WHERE status = 'published' AND extended = 0 AND search_hits < 5 AND expires_at > ?"
   ).bind(nowIso, nowIso).run();
 }
 

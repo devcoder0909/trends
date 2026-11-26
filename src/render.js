@@ -3,6 +3,8 @@
  * pagination, search, progressive back bar, and Google News dark cluster UI.
  */
 
+import { formatDisplayTopic } from './config.js';
+
 export const PER_PAGE = 10;
 
 export const NAV_CATEGORIES = [
@@ -266,7 +268,7 @@ function renderPostBody(post, livePosts, nowMs) {
 
   let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
   if (whatHappened) h += '<section><h2>What Happened</h2>' + `<p>${esc(whatHappened)}</p></section>`;
-  if (whyTrending) h += `<section><h2>Why ${esc(post.topic || 'This')} Is Trending</h2><p>${esc(whyTrending)}</p></section>`;
+  if (whyTrending) h += `<section><h2>Why ${esc(formatDisplayTopic(post.topic) || 'This')} Is Trending</h2><p>${esc(whyTrending)}</p></section>`;
   if (keyFacts.length) h += '<section id="facts"><h2>Key Facts</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul></section>';
   if (whatNext) h += `<section><h2>What to Know Next</h2><p>${esc(whatNext)}</p></section>`;
   for (const u of earlierUpdates) h += `<p class="u"><strong>Update (${timeAgo(u.time, nowMs)}):</strong> ${esc(u.text)}</p>`;
@@ -494,8 +496,8 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     dateModified,
     description: desc,
     image: [
-      postImg,
       { '@type': 'ImageObject', url: ogImg, width: 1200, height: 630 },
+      postImg,
     ],
     articleSection: cat,
     keywords,

@@ -56,7 +56,7 @@ const SECURITY_HEADERS = {
 
 const SEO_INDEX_HEADERS = {
   ...SECURITY_HEADERS,
-  'Cache-Control': 'public, s-maxage=60, max-age=30, stale-while-revalidate=300',
+  'Cache-Control': 'public, s-maxage=180, max-age=30, stale-while-revalidate=600',
   'X-Robots-Tag': 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1',
 };
 
@@ -65,7 +65,7 @@ const htmlRes = (body, status = 200, extra = {}) =>
 const textRes = (body, status = 200) =>
   new Response(body, { status, headers: { 'Content-Type': 'text/plain;charset=utf-8', ...SECURITY_HEADERS } });
 const xmlRes = body =>
-  new Response(body, { headers: { 'Content-Type': 'application/xml;charset=utf-8', 'Cache-Control': 'public, s-maxage=60, max-age=30', ...SECURITY_HEADERS } });
+  new Response(body, { headers: { 'Content-Type': 'application/xml;charset=utf-8', 'Cache-Control': 'public, s-maxage=120, max-age=30, stale-while-revalidate=300', ...SECURITY_HEADERS } });
 
 async function logRejected(db, hash, topic, geo, reason, details = '') {
   await db.prepare(
@@ -226,25 +226,28 @@ export async function handleScheduled(env) {
     ]);
   }
 
-  // Full 7-day cleanup across dedup, timed-out holds, stale queue, and rejected log
-  const sevenDaysAgo = new Date(Date.now() - settings.seenTtlDays * 86400_000).toISOString();
-  const holdCutoff = new Date(Date.now() - settings.holdMaxMinutes * 60_000).toISOString();
-  const queueCutoff = new Date(Date.now() - 12 * 3600_000).toISOString();
+  // Hourly 7-day table cleanup (and always on termination/dev) to avoid 1,440 daily scans on D1 free tier
+  const isCleanupTick = isSiteEnded || settings.devMode || new Date().getUTCMinutes() === 0;
+  if (isCleanupTick) {
+    const sevenDaysAgo = new Date(Date.now() - settings.seenTtlDays * 86400_000).toISOString();
+    const holdCutoff = new Date(Date.now() - settings.holdMaxMinutes * 60_000).toISOString();
+    const queueCutoff = new Date(Date.now() - 12 * 3600_000).toISOString();
 
-  const expiredHolds = (await db.prepare(
-    'SELECT topic_hash, topic, geo FROM pending_topics WHERE first_seen_at < ?'
-  ).bind(holdCutoff).all()).results || [];
-  for (const h of expiredHolds) {
-    await logRejected(db, h.topic_hash, h.topic, h.geo, 'single_source_timeout', 'Held 30m without 2 distinct outlets');
-    await markSeen(db, h.topic_hash, h.topic_hash, now);
+    const expiredHolds = (await db.prepare(
+      'SELECT topic_hash, topic, geo FROM pending_topics WHERE first_seen_at < ?'
+    ).bind(holdCutoff).all()).results || [];
+    for (const h of expiredHolds) {
+      await logRejected(db, h.topic_hash, h.topic, h.geo, 'single_source_timeout', 'Held 30m without 2 distinct outlets');
+      await markSeen(db, h.topic_hash, h.topic_hash, now);
+    }
+
+    await db.batch([
+      db.prepare('DELETE FROM seen_topics WHERE seen_at < ?').bind(sevenDaysAgo),
+      db.prepare('DELETE FROM rejected WHERE rejected_at < ?').bind(sevenDaysAgo),
+      db.prepare('DELETE FROM pending_topics WHERE first_seen_at < ?').bind(holdCutoff),
+      db.prepare("DELETE FROM topics WHERE status = 'queued' AND created_at < ?").bind(queueCutoff),
+    ]);
   }
-
-  await db.batch([
-    db.prepare('DELETE FROM seen_topics WHERE seen_at < ?').bind(sevenDaysAgo),
-    db.prepare('DELETE FROM rejected WHERE rejected_at < ?').bind(sevenDaysAgo),
-    db.prepare('DELETE FROM pending_topics WHERE first_seen_at < ?').bind(holdCutoff),
-    db.prepare("DELETE FROM topics WHERE status = 'queued' AND created_at < ?").bind(queueCutoff),
-  ]);
 
   if (isSiteEnded) return;
 
@@ -268,191 +271,208 @@ export async function handleScheduled(env) {
     }
   }
 
-  // 4. Fetch Trends RSS — always fetch primary geo (US) + rotate 2 secondary geos per minute
-  let tickGeos = settings.geos;
-  if (!settings.devMode && settings.geos.length > 3) {
-    const primaryGeo = settings.geos[0];
-    const secondary = settings.geos.slice(1);
-    const rot = (Math.floor(Date.now() / 60_000) * 2) % secondary.length;
-    tickGeos = [primaryGeo, secondary[rot], secondary[(rot + 1) % secondary.length]];
-  }
-
-  const rawCandidates = [];
-  for (const geo of tickGeos) {
-    let xml = '';
-    if (settings.devMode) {
-      xml = MOCK_RSS;
-    } else {
-      if (budget.remaining() <= 10) break;
-      budget.spend(1);
-      try {
-        const res = await fetch(`https://trends.google.com/trending/rss?geo=${geo}`, {
-          headers: { 'User-Agent': 'TrendBot/1.0' },
-          signal: timeoutSig(7000),
-        });
-        if (!res.ok) continue;
-        xml = await res.text();
-      } catch {
-        continue;
-      }
-    }
-    for (const item of parseTrendsRSS(xml)) {
-      rawCandidates.push({ ...item, geo });
-    }
-  }
-
-  const pendingRows = (await db.prepare('SELECT * FROM pending_topics').all()).results || [];
-  const pendingMap = new Map(pendingRows.map(r => [r.topic_hash, r]));
-  for (const p of pendingRows) {
-    if (!rawCandidates.some(c => slugify(c.title) === p.topic_hash)) {
-      let trendsItems = [];
-      try { trendsItems = JSON.parse(p.source_json || '[]'); } catch {}
-      rawCandidates.push({ title: p.topic, approxTraffic: p.approx_traffic, newsItems: trendsItems, geo: p.geo });
-    }
-  }
-
-  const ranked = rankTopics(rawCandidates);
-
-  const liveRows = (await db.prepare(
-    "SELECT id, slug, title, topic, image_url FROM topics WHERE status = 'published' AND expires_at > ?"
-  ).bind(now).all()).results || [];
-  const liveTitles = new Set(liveRows.map(r => r.title.toLowerCase()));
-  const liveBySlug = new Map(liveRows.map(r => [r.slug, r]));
-
-  for (const item of ranked) {
-    const slugKey = slugify(item.title);
-    const existing = liveBySlug.get(slugKey);
-    if (existing && !existing.image_url && item.imageUrl) {
-      await db.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE id = ?')
-        .bind(item.imageUrl, item.imageSource || '', existing.id)
-        .run();
-      existing.image_url = item.imageUrl;
-    }
-  }
+  // Stop burning Trends/News/LLM quota once today's cap + 5-item reserve queue is full
+  const queuedLeft = count >= settings.maxDaily
+    ? ((await db.prepare("SELECT COUNT(*) as c FROM topics WHERE status = 'queued'").first())?.c || 0)
+    : 0;
+  const shouldFetchNew = settings.devMode || count < settings.maxDaily || queuedLeft < 5;
 
   const newUrls = [];
   const touchedCats = new Set();
-  let processedThisTick = 0;
 
-  for (const item of ranked) {
-    const hash = slugify(item.title);
-    if (!hash) continue;
-
-    if (await db.prepare('SELECT 1 FROM seen_topics WHERE topic_hash = ?').bind(hash).first()) continue;
-
-    if (isNearDuplicateTopic(item.title, liveRows)) {
-      await logRejected(db, hash, item.title, item.geo, 'duplicate_topic', 'Near-duplicate of live post');
-      await markSeen(db, hash, hash, now);
-      await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
-      continue;
+  if (shouldFetchNew) {
+    // 4. Fetch Trends RSS — always fetch primary geo (US) + rotate 2 secondary geos per minute
+    let tickGeos = settings.geos;
+    if (!settings.devMode && settings.geos.length > 3) {
+      const primaryGeo = settings.geos[0];
+      const secondary = settings.geos.slice(1);
+      const rot = (Math.floor(Date.now() / 60_000) * 2) % secondary.length;
+      tickGeos = [primaryGeo, secondary[rot], secondary[(rot + 1) % secondary.length]];
     }
 
-    const earlyText = [item.title, ...(item.newsItems || []).map(n => `${n.title} ${n.snippet}`)].join(' ');
-    if (isSensitive(earlyText)) {
-      await logRejected(db, hash, item.title, item.geo, 'sensitive', 'Matched blocklist in Trends RSS');
-      await markSeen(db, hash, hash, now);
-      await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
-      continue;
-    }
-
-    // Backoff recent pending retries by 2 minutes so we don't spin on the same topic back-to-back
-    const pend = pendingMap.get(hash);
-    if (pend && pend.last_tried_at && Date.now() - Date.parse(pend.last_tried_at) < 90_000) {
-      continue;
-    }
-
-    if (processedThisTick >= MAX_TOPICS_PER_TICK) break;
-    if (!settings.devMode && budget.remaining() <= 10) break; // reserve remaining subrequests strictly for indexing
-    processedThisTick++;
-
-    if (!settings.devMode) budget.spend(1);
-    const googleNewsItems = settings.devMode
-      ? (MOCK_GOOGLE_NEWS[hash] || [])
-      : await fetchGoogleNews(item.title, item.geo || 'US');
-
-    const merged = mergeSources(item.newsItems, googleNewsItems);
-
-    if (merged.distinctOutlets.length < 2) {
-      if (!pend) {
-        await db.prepare(
-          'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
-        ).bind(hash, item.title, item.geo, item.approxTraffic || 0, JSON.stringify(item.newsItems || []), now, now).run();
+    const rawCandidates = [];
+    for (const geo of tickGeos) {
+      let xml = '';
+      if (settings.devMode) {
+        xml = MOCK_RSS;
       } else {
-        await db.prepare('UPDATE pending_topics SET last_tried_at = ? WHERE topic_hash = ?').bind(now, hash).run();
+        if (budget.remaining() <= 10) break;
+        budget.spend(1);
+        try {
+          const res = await fetch(`https://trends.google.com/trending/rss?geo=${geo}`, {
+            headers: { 'User-Agent': 'TrendBot/1.0' },
+            signal: timeoutSig(7000),
+          });
+          if (!res.ok) continue;
+          xml = await res.text();
+        } catch {
+          continue;
+        }
       }
-      continue;
+      for (const item of parseTrendsRSS(xml)) {
+        rawCandidates.push({ ...item, geo });
+      }
     }
 
-    const result = await generateAndValidatePost(
-      env,
-      { topic: item.title, sources: merged.items },
-      liveTitles,
-      { skipLlmVerifier: true, budget }
+    const pendingRows = (await db.prepare('SELECT * FROM pending_topics').all()).results || [];
+    const pendingMap = new Map(pendingRows.map(r => [r.topic_hash, r]));
+    for (const p of pendingRows) {
+      if (!rawCandidates.some(c => slugify(c.title) === p.topic_hash)) {
+        let trendsItems = [];
+        try { trendsItems = JSON.parse(p.source_json || '[]'); } catch {}
+        rawCandidates.push({ title: p.topic, approxTraffic: p.approx_traffic, newsItems: trendsItems, geo: p.geo });
+      }
+    }
+
+    const ranked = rankTopics(rawCandidates);
+
+    const liveRows = (await db.prepare(
+      "SELECT id, slug, title, topic, image_url FROM topics WHERE status = 'published' AND expires_at > ?"
+    ).bind(now).all()).results || [];
+    const liveTitles = new Set(liveRows.map(r => r.title.toLowerCase()));
+    const liveBySlug = new Map(liveRows.map(r => [r.slug, r]));
+    const seenSet = new Set(
+      ((await db.prepare('SELECT topic_hash FROM seen_topics').all()).results || []).map(r => r.topic_hash)
     );
 
-    if (!result.ok) {
-      const retries = (pend?.retry_count || 0) + 1;
-      await logRejected(db, hash, item.title, item.geo, result.code, result.reason);
-      if (result.code === 'sensitive' || result.code === 'duplicate_topic' || (result.code === 'quality_gate' && retries >= 3)) {
-        await markSeen(db, hash, hash, now);
-        await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
-      } else if (!pend) {
-        await db.prepare(
-          'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        ).bind(hash, item.title, item.geo, item.approxTraffic || 0, JSON.stringify(item.newsItems || []), now, now, retries).run();
-      } else {
-        await db.prepare('UPDATE pending_topics SET last_tried_at = ?, retry_count = ? WHERE topic_hash = ?').bind(now, retries, hash).run();
+    for (const item of ranked) {
+      const slugKey = slugify(item.title);
+      const existing = liveBySlug.get(slugKey);
+      if (existing && !existing.image_url && item.imageUrl) {
+        await db.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE id = ?')
+          .bind(item.imageUrl, item.imageSource || '', existing.id)
+          .run();
+        existing.image_url = item.imageUrl;
       }
-      continue;
     }
 
-    const post = result.post;
-    const created = isoNow();
-    const expires = new Date(Date.now() + settings.baseTtlHours * 3600_000).toISOString();
-    const status = count >= settings.maxDaily ? 'queued' : 'published';
-    const sourcesCsv = merged.distinctOutlets.join(', ');
+    let processedThisTick = 0;
 
-    try {
-      await db.batch([
-        db.prepare(
-          `INSERT INTO topics (
-            slug, title, body, summary, what_happened, why_trending, key_facts,
-            what_to_know_next, also_searched, bullets, sources, source_urls,
-            image_url, image_source, category, topic, geo, status, approx_traffic, created_at, updated_at, expires_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).bind(
-          hash, post.title, post.what_happened, post.summary, post.what_happened,
-          post.why_trending, JSON.stringify(post.key_facts), post.what_to_know_next,
-          JSON.stringify(post.also_searched), JSON.stringify(post.key_facts),
-          sourcesCsv, JSON.stringify(merged.sourceUrls),
-          item.imageUrl || '', item.imageSource || '', post.category,
-          item.title, item.geo, status, item.approxTraffic || 0, created, created, expires
-        ),
-        db.prepare('INSERT OR IGNORE INTO seen_topics (topic_hash, slug, seen_at) VALUES (?, ?, ?)')
-          .bind(hash, hash, created),
-        db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash),
-      ]);
+    for (const item of ranked) {
+      const hash = slugify(item.title);
+      if (!hash || seenSet.has(hash)) continue;
 
-      liveTitles.add(post.title.toLowerCase());
-      liveRows.push({ title: post.title, topic: item.title });
-      if (status === 'published') {
-        const catPath = `/c/${slugify(post.category || 'News')}`;
-        touchedCats.add(catPath);
-        newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
-        count++;
+      if (isNearDuplicateTopic(item.title, liveRows)) {
+        await logRejected(db, hash, item.title, item.geo, 'duplicate_topic', 'Near-duplicate of live post');
+        await markSeen(db, hash, hash, now);
+        seenSet.add(hash);
+        await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+        continue;
       }
-    } catch { /* duplicate slug — skip gracefully */ }
+
+      const earlyText = [item.title, ...(item.newsItems || []).map(n => `${n.title} ${n.snippet}`)].join(' ');
+      if (isSensitive(earlyText)) {
+        await logRejected(db, hash, item.title, item.geo, 'sensitive', 'Matched blocklist in Trends RSS');
+        await markSeen(db, hash, hash, now);
+        seenSet.add(hash);
+        await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+        continue;
+      }
+
+      // Backoff recent pending retries by 90s so we don't spin on the same topic back-to-back
+      const pend = pendingMap.get(hash);
+      if (pend && pend.last_tried_at && Date.now() - Date.parse(pend.last_tried_at) < 90_000) {
+        continue;
+      }
+
+      if (processedThisTick >= MAX_TOPICS_PER_TICK) break;
+      if (!settings.devMode && budget.remaining() <= 10) break; // reserve remaining subrequests strictly for indexing
+      processedThisTick++;
+
+      if (!settings.devMode) budget.spend(1);
+      const googleNewsItems = settings.devMode
+        ? (MOCK_GOOGLE_NEWS[hash] || [])
+        : await fetchGoogleNews(item.title, item.geo || 'US');
+
+      const merged = mergeSources(item.newsItems, googleNewsItems);
+
+      if (merged.distinctOutlets.length < 2) {
+        if (!pend) {
+          await db.prepare(
+            'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
+          ).bind(hash, item.title, item.geo, item.approxTraffic || 0, JSON.stringify(item.newsItems || []), now, now).run();
+        } else {
+          await db.prepare('UPDATE pending_topics SET last_tried_at = ? WHERE topic_hash = ?').bind(now, hash).run();
+        }
+        continue;
+      }
+
+      const result = await generateAndValidatePost(
+        env,
+        { topic: item.title, sources: merged.items },
+        liveTitles,
+        { skipLlmVerifier: true, budget }
+      );
+
+      if (!result.ok) {
+        const retries = (pend?.retry_count || 0) + 1;
+        await logRejected(db, hash, item.title, item.geo, result.code, result.reason);
+        if (result.code === 'sensitive' || result.code === 'duplicate_topic' || (result.code === 'quality_gate' && retries >= 3)) {
+          await markSeen(db, hash, hash, now);
+          seenSet.add(hash);
+          await db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash).run();
+        } else if (!pend) {
+          await db.prepare(
+            'INSERT OR IGNORE INTO pending_topics (topic_hash, topic, geo, approx_traffic, source_json, first_seen_at, last_tried_at, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(hash, item.title, item.geo, item.approxTraffic || 0, JSON.stringify(item.newsItems || []), now, now, retries).run();
+        } else {
+          await db.prepare('UPDATE pending_topics SET last_tried_at = ?, retry_count = ? WHERE topic_hash = ?').bind(now, retries, hash).run();
+        }
+        continue;
+      }
+
+      const post = result.post;
+      const created = isoNow();
+      const expires = new Date(Date.now() + settings.baseTtlHours * 3600_000).toISOString();
+      const status = count >= settings.maxDaily ? 'queued' : 'published';
+      const sourcesCsv = merged.distinctOutlets.join(', ');
+
+      try {
+        await db.batch([
+          db.prepare(
+            `INSERT INTO topics (
+              slug, title, body, summary, what_happened, why_trending, key_facts,
+              what_to_know_next, also_searched, bullets, sources, source_urls,
+              image_url, image_source, category, topic, geo, status, approx_traffic, created_at, updated_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            hash, post.title, post.what_happened, post.summary, post.what_happened,
+            post.why_trending, JSON.stringify(post.key_facts), post.what_to_know_next,
+            JSON.stringify(post.also_searched), JSON.stringify(post.key_facts),
+            sourcesCsv, JSON.stringify(merged.sourceUrls),
+            item.imageUrl || '', item.imageSource || '', post.category,
+            item.title, item.geo, status, item.approxTraffic || 0, created, created, expires
+          ),
+          db.prepare('INSERT OR IGNORE INTO seen_topics (topic_hash, slug, seen_at) VALUES (?, ?, ?)')
+            .bind(hash, hash, created),
+          db.prepare('DELETE FROM pending_topics WHERE topic_hash = ?').bind(hash),
+        ]);
+
+        seenSet.add(hash);
+        liveTitles.add(post.title.toLowerCase());
+        liveRows.push({ title: post.title, topic: item.title });
+        if (status === 'published') {
+          const catPath = `/c/${slugify(post.category || 'News')}`;
+          touchedCats.add(catPath);
+          newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
+          count++;
+        }
+      } catch { /* duplicate slug — skip gracefully */ }
+    }
   }
 
   const postPings = [...new Set([...newUrls.filter(u => u.includes('/p/')), ...updatedUrls, ...promotedUrls])];
   const indexNowBatch = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls])];
+  const updatedPaths = updatedUrls.map(u => {
+    try { return new URL(u).pathname; } catch { return ''; }
+  }).filter(Boolean);
 
   if (indexNowBatch.length) {
     await Promise.allSettled([
       pingIndexNow(env, indexNowBatch),
       pingWebSub(env, siteUrl),
       pingGoogleIndexing(env, postPings, 'URL_UPDATED'),
-      purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats]),
+      purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths]),
     ]);
   }
 }
@@ -625,18 +645,27 @@ export async function handleFetch(request, env, ctx) {
 
   if (path === '/about') return cacheAndReturn(htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS));
 
-  const live = async () => (await db.prepare(
-    "SELECT * FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC"
+  // Targeted projections cut D1 read payload by ~70% on list, sitemap, RSS, and post routes
+  const liveSummary = async () => (await db.prepare(
+    "SELECT slug, title, summary, key_facts, updates_json, also_searched, sources, category, topic, geo, created_at, updated_at, expires_at, extended, image_url, image_source FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC"
   ).bind(now).all()).results || [];
 
-  if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await live(), siteUrl)));
-  if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await live(), siteUrl, settings.siteName, nowMs)));
-  if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await live(), siteUrl, settings.siteName)));
+  const liveRelated = async () => (await db.prepare(
+    "SELECT slug, title, topic, category, created_at, also_searched FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 80"
+  ).bind(now).all()).results || [];
+
+  const liveRss = async () => (await db.prepare(
+    "SELECT slug, title, summary, what_happened, why_trending, key_facts, sources, category, created_at, updated_at FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 50"
+  ).bind(now).all()).results || [];
+
+  if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await liveSummary(), siteUrl)));
+  if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await liveSummary(), siteUrl, settings.siteName, nowMs)));
+  if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await liveRss(), siteUrl, settings.siteName)));
   if (path === '/llms.txt') {
-    return cacheAndReturn(new Response(llmsTxt(await live(), siteUrl, settings.siteName), {
+    return cacheAndReturn(new Response(llmsTxt(await liveSummary(), siteUrl, settings.siteName), {
       headers: {
         'Content-Type': 'text/plain;charset=utf-8',
-        'Cache-Control': 'public, s-maxage=60, max-age=30',
+        'Cache-Control': 'public, s-maxage=120, max-age=30, stale-while-revalidate=300',
         ...SECURITY_HEADERS,
       },
     }));
@@ -648,7 +677,7 @@ export async function handleFetch(request, env, ctx) {
     const pageNum = Number.parseInt(homePageMatch[1], 10);
     if (!Number.isFinite(pageNum) || pageNum < 1) return Response.redirect(`${siteUrl}/`, 301);
 
-    const posts = await live();
+    const posts = await liveSummary();
     const totalPages = Math.max(1, Math.ceil(posts.length / PER_PAGE));
     if (pageNum > totalPages) {
       return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
@@ -682,7 +711,7 @@ export async function handleFetch(request, env, ctx) {
       return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
     }
 
-    const allLive = await live();
+    const allLive = await liveSummary();
     const filtered = allLive.filter(p => slugify(p.category || 'News') === catSlug);
     const pageNum = catMatch[2] ? Number.parseInt(catMatch[2], 10) : 1;
     const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
@@ -704,7 +733,7 @@ export async function handleFetch(request, env, ctx) {
     const query = (url.searchParams.get('q') || '').trim().slice(0, 120);
     const cat = slugify(url.searchParams.get('cat') || '');
     const page = Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1);
-    const allLive = await live();
+    const allLive = await liveSummary();
     const results = query
       ? await searchLivePosts(db, now, query, cat)
       : (cat ? allLive.filter(p => slugify(p.category || 'News') === cat) : []);
@@ -725,7 +754,7 @@ export async function handleFetch(request, env, ctx) {
       if (shouldCountSearchHit(request) && ctx?.waitUntil) {
         ctx.waitUntil(recordSearchHit(db, slug, now));
       }
-      const allLive = await live();
+      const allLive = await liveRelated();
       const others = allLive.filter(p => p.slug !== slug);
       const sameCat = others.filter(p => (p.category || 'News') === (post.category || 'News'));
       const diffCat = others.filter(p => (p.category || 'News') !== (post.category || 'News'));
