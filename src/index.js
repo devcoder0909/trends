@@ -762,7 +762,8 @@ export async function handleFetch(request, env, ctx) {
       const others = allLive.filter(p => p.slug !== slug);
       const sameCat = others.filter(p => (p.category || 'News') === (post.category || 'News'));
       const diffCat = others.filter(p => (p.category || 'News') !== (post.category || 'News'));
-      const related = [...sameCat, ...diffCat].slice(0, 6);
+      // Strict category silo linking first; only fall back to cross-category if silo has <2 siblings
+      const related = (sameCat.length >= 2 ? sameCat : [...sameCat, ...diffCat]).slice(0, 6);
 
       return cacheAndReturn(htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, {
         ...SEO_INDEX_HEADERS,

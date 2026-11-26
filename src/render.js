@@ -3,7 +3,7 @@
  * pagination, search, progressive back bar, and Google News dark cluster UI.
  */
 
-import { formatDisplayTopic } from './config.js';
+import { formatDisplayTopic, stripInlineSourceTags } from './config.js';
 
 export const PER_PAGE = 10;
 
@@ -73,9 +73,9 @@ function parseJsonField(raw, fallback) {
  * Build optimal 120-158 char meta description from summary + lead context.
  */
 export function buildMetaDescription(post) {
-  const summary = String(post.summary || post.body || post.title || '').trim();
-  const what = String(post.what_happened || '').trim();
-  const why = String(post.why_trending || '').trim();
+  const summary = stripInlineSourceTags(post.summary || post.body || post.title || '', post.sources);
+  const what = stripInlineSourceTags(post.what_happened || '', post.sources);
+  const why = stripInlineSourceTags(post.why_trending || '', post.sources);
   let combined = summary;
   if (combined.length < 120 && what && !what.startsWith(summary)) {
     combined = `${combined} ${what}`.replace(/\s+/g, ' ').trim();
@@ -130,7 +130,10 @@ function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
 }
 
 function htmlFoot(email) {
-  return `<footer class="w m"><p>Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/search">Search</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
+  const catSilos = NAV_CATEGORIES.slice(0, 8)
+    .map(c => `<a href="/c/${slugify(c)}">${esc(c)}</a>`)
+    .join(' · ');
+  return `<footer class="w m"><p>Hubs: <a href="/">Home</a> · ${catSilos}</p><p>Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
 }
 
 function renderBackBar(crumbs = [], currentLabel = '', backHref = '/') {
@@ -219,21 +222,25 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
   const cat = p.category || 'News';
   const catSlug = slugify(cat);
   const relTime = timeAgo(p.created_at, nowMs);
-  const lead = p.summary || p.what_happened || p.body || '';
-  const keyFacts = parseJsonField(p.key_facts || p.bullets, []).slice(0, 3);
+  const lead = stripInlineSourceTags(p.summary || p.what_happened || p.body || '', p.sources);
+  const keyFacts = parseJsonField(p.key_facts || p.bullets, [])
+    .slice(0, 3)
+    .map(f => stripInlineSourceTags(f, p.sources))
+    .filter(Boolean);
   const updates = parseJsonField(p.updates_json, []);
   const latestUpdate = updates[updates.length - 1];
+  const cleanUpdate = latestUpdate ? stripInlineSourceTags(latestUpdate.text, p.sources) : '';
   const alsoMatches = findMatchingLiveLinks(p, livePosts);
 
-  let left = `<a href="/p/${esc(p.slug)}"><img src="/i/${esc(p.slug)}.jpg" alt="${esc(p.title)}" width="320" height="180" decoding="async"${isFirstImg ? '' : ' loading="lazy"'}></a>`;
+  let left = `<a href="/p/${esc(p.slug)}"><img src="/i/${esc(p.slug)}.jpg" alt="${esc(p.title)}" width="320" height="180" decoding="async"${isFirstImg ? ' fetchpriority="high"' : ' loading="lazy"'}></a>`;
   left += `<p class="m">${showCategory ? `<a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · ` : ''}<time datetime="${esc(p.created_at)}">${relTime}</time>`;
   if (p.updated_at && p.updated_at !== p.created_at) left += ` · Updated ${timeAgo(p.updated_at, nowMs)}`;
   left += `</p><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
   if (p.sources) left += `<p class="m"><strong>Sources:</strong> ${esc(p.sources)}</p>`;
 
   let right = lead ? `<p class="sum">${esc(lead)}</p>` : '';
-  if (latestUpdate) {
-    right += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdate.text)}</p>`;
+  if (cleanUpdate) {
+    right += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(cleanUpdate)}</p>`;
   }
   if (keyFacts.length) {
     right += '<p class="m"><strong>Key facts &amp; perspectives</strong></p><ul>' +
@@ -241,7 +248,7 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
   }
   const relatedHtml = alsoMatches.length
     ? `<span class="m"><strong>Related:</strong> ${alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ')}</span>`
-    : `<span class="m">${esc(cat)} briefing</span>`;
+    : `<a class="m" href="/c/${esc(catSlug)}">More ${esc(cat)} &rarr;</a>`;
   right += `<div class="f j">${relatedHtml}<a class="bt" href="/p/${esc(p.slug)}">Full briefing &rarr;</a></div>`;
 
   return `<article class="c" id="${esc(p.slug)}"><div class="r"><div>${left}</div><div class="d">${right}</div></div></article>`;
@@ -250,42 +257,47 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
 function renderPostBody(post, livePosts, nowMs) {
   const cat = post.category || 'News';
   const catSlug = slugify(cat);
-  const summary = post.summary || '';
-  const whatHappened = post.what_happened || post.body || '';
-  const whyTrending = post.why_trending || '';
-  const keyFacts = parseJsonField(post.key_facts || post.bullets, []);
-  const whatNext = post.what_to_know_next || '';
+  const topicTitle = formatDisplayTopic(post.topic) || 'This';
+  const summary = stripInlineSourceTags(post.summary || '', post.sources);
+  const whatHappened = stripInlineSourceTags(post.what_happened || post.body || '', post.sources);
+  const whyTrending = stripInlineSourceTags(post.why_trending || '', post.sources);
+  const keyFacts = parseJsonField(post.key_facts || post.bullets, [])
+    .map(f => stripInlineSourceTags(f, post.sources))
+    .filter(Boolean);
+  const whatNext = stripInlineSourceTags(post.what_to_know_next || '', post.sources);
   const updates = parseJsonField(post.updates_json, []);
   const latestUpdate = updates[updates.length - 1];
+  const latestUpdateText = latestUpdate ? stripInlineSourceTags(latestUpdate.text, post.sources) : '';
   const earlierUpdates = updates.length > 1 ? updates.slice(0, -1) : [];
   const alsoSearched = parseJsonField(post.also_searched, []);
   const alsoMatches = findMatchingLiveLinks(post, livePosts);
 
   let rightLead = summary ? `<p class="sum">${esc(summary)}</p>` : '';
-  if (latestUpdate) rightLead += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdate.text)}</p>`;
+  if (latestUpdateText) rightLead += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdateText)}</p>`;
   if (post.sources) rightLead += `<p class="m"><strong>Sources:</strong> ${esc(post.sources)}</p>`;
-  rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key facts</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">More ${esc(cat)}</a></div>`;
+  rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key facts</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">All ${esc(cat)}</a></div>`;
 
-  let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
-  if (whatHappened) h += '<section><h2>What Happened</h2>' + `<p>${esc(whatHappened)}</p></section>`;
-  if (whyTrending) h += `<section><h2>Why ${esc(formatDisplayTopic(post.topic) || 'This')} Is Trending</h2><p>${esc(whyTrending)}</p></section>`;
-  if (keyFacts.length) h += '<section id="facts"><h2>Key Facts</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul></section>';
-  if (whatNext) h += `<section><h2>What to Know Next</h2><p>${esc(whatNext)}</p></section>`;
-  for (const u of earlierUpdates) h += `<p class="u"><strong>Update (${timeAgo(u.time, nowMs)}):</strong> ${esc(u.text)}</p>`;
+  let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async" fetchpriority="high">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
+  if (whatHappened) h += `<section><h2>What Happened</h2><p>${esc(whatHappened)}</p></section>`;
+  if (whyTrending) h += `<section><h2>Why ${esc(topicTitle)} Is Trending</h2><p>${esc(whyTrending)}</p></section>`;
+  if (keyFacts.length) h += '<section id="facts"><h2>Key Facts &amp; Takeaways</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul></section>';
+  if (whatNext) h += `<section><h2>What to Expect Next</h2><p>${esc(whatNext)}</p></section>`;
+  for (const u of earlierUpdates) {
+    const cleanU = stripInlineSourceTags(u.text, post.sources);
+    if (cleanU) h += `<p class="u"><strong>Update (${timeAgo(u.time, nowMs)}):</strong> ${esc(cleanU)}</p>`;
+  }
 
   const matchedPhrases = new Set(alsoMatches.map(m => m.phrase.toLowerCase()));
   const searchSuggestions = alsoSearched.filter(p => p && !matchedPhrases.has(String(p).toLowerCase())).slice(0, 4);
 
-  if (alsoMatches.length || searchSuggestions.length) {
-    h += '<div class="f" style="margin:8px 0"><span class="m">Explore:</span>';
-    for (const m of alsoMatches) {
-      h += `<a class="bt" href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`;
-    }
-    for (const q of searchSuggestions) {
-      h += `<a class="bt" href="/search?q=${encodeURIComponent(q)}">${esc(q)}</a>`;
-    }
-    h += '</div>';
+  h += `<div class="f" style="margin:8px 0"><span class="m">Explore ${esc(cat)}:</span><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} Hub</a>`;
+  for (const m of alsoMatches) {
+    h += `<a class="bt" href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`;
   }
+  for (const q of searchSuggestions) {
+    h += `<a class="bt" href="/search?q=${encodeURIComponent(q)}" rel="nofollow">${esc(q)}</a>`;
+  }
+  h += '</div>';
   h += `<section id="sources">${renderSourcesList(post, true)}</section>`;
   return h;
 }
@@ -336,7 +348,9 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
     });
   }
 
-  const ldTag = `<script type="application/ld+json">${JSON.stringify(ld).replace(/<\//g, '<\\/')}</script>`;
+  const prevTag = pg.page > 1 ? `<link rel="prev" href="${pg.page === 2 ? `${siteUrl}/` : `${siteUrl}/page/${pg.page - 1}`}">` : '';
+  const nextTag = pg.page < pg.totalPages ? `<link rel="next" href="${siteUrl}/page/${pg.page + 1}">` : '';
+  const ldTag = `${prevTag}${nextTag}<script type="application/ld+json">${JSON.stringify(ld).replace(/<\//g, '<\\/')}</script>`;
   let h = htmlHead(title, desc, canon, settings.geos, ldTag, 'website', `${siteUrl}/og.png`);
   h += siteHeader(settings.siteName, 'home') + '<main class="w">';
   if (pg.page > 1) h += renderBackBar([{ label: 'Home', href: '/' }], `Page ${pg.page}`, '/');
@@ -395,7 +409,9 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
     },
   ]).replace(/<\//g, '<\\/');
 
-  let h = htmlHead(title, desc, canon, settings.geos, `<script type="application/ld+json">${ld}</script>`, 'website', `${siteUrl}/og.png`);
+  const catPrev = pg.page > 1 ? `<link rel="prev" href="${pg.page === 2 ? `${siteUrl}/c/${catSlug}` : `${siteUrl}/c/${catSlug}/page/${pg.page - 1}`}">` : '';
+  const catNext = pg.page < pg.totalPages ? `<link rel="next" href="${siteUrl}/c/${catSlug}/page/${pg.page + 1}">` : '';
+  let h = htmlHead(title, desc, canon, settings.geos, `${catPrev}${catNext}<script type="application/ld+json">${ld}</script>`, 'website', `${siteUrl}/og.png`);
   h += siteHeader(settings.siteName, catSlug) + '<main class="w">';
   const crumbs = pg.page > 1
     ? [{ label: 'Home', href: '/' }, { label: categoryName, href: `/c/${catSlug}` }]
@@ -406,6 +422,12 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} ${esc(catLower)} briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
   h += '</div>';
+  if (pg.page === 1 && pg.items.length) {
+    const topicNames = pg.items.slice(0, 3).map(p => formatDisplayTopic(p.topic || p.title)).filter(Boolean);
+    if (topicNames.length) {
+      h += `<p class="m">Live ${esc(catLower)} coverage hub tracking verified updates across ${esc(topicNames.join(', '))}.</p>`;
+    }
+  }
   for (let i = 0; i < pg.items.length; i++) {
     h += renderStoryCard(pg.items[i], posts, nowMs, false, i === 0);
   }
@@ -536,8 +558,11 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     clampTitle(post.title, 36),
     `/c/${catSlug}`
   );
+  const readWords = [post.summary, post.what_happened || post.body, post.why_trending, post.what_to_know_next]
+    .join(' ').trim().split(/\s+/).filter(Boolean).length;
+  const readMins = Math.max(1, Math.round(readWords / 200));
   h += `<article class="c" id="${esc(post.slug)}">`;
-  h += `<p class="m"><a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · Published <time datetime="${esc(post.created_at)}">${timeAgo(post.created_at, nowMs)}</time>`;
+  h += `<p class="m"><a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · Published <time datetime="${esc(post.created_at)}">${timeAgo(post.created_at, nowMs)}</time> · ${readMins} min read`;
   if (post.updated_at && post.updated_at !== post.created_at) {
     h += ` · Updated <time datetime="${esc(post.updated_at)}">${timeAgo(post.updated_at, nowMs)}</time>`;
   }
@@ -547,7 +572,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   h += `</article>`;
 
   if (related.length) {
-    h += '<nav class="c" aria-label="Related briefings"><p class="m"><strong>More trending now</strong></p><div class="r g">';
+    h += `<nav class="c" aria-label="Related briefings"><div class="f j"><p class="m"><strong>More in ${esc(cat)}</strong></p><a class="m" href="/c/${esc(catSlug)}">Browse all ${esc(cat)} &rarr;</a></div><div class="r g">`;
     for (const r of related) {
       const rCat = r.category || 'News';
       h += `<p><a class="k" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · <a href="/p/${esc(r.slug)}">${esc(r.title)}</a> <span class="m">· ${timeAgo(r.created_at, nowMs)}</span></p>`;

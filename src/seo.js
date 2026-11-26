@@ -6,6 +6,7 @@
  */
 
 import { slugify, NAV_CATEGORIES } from './render.js';
+import { stripInlineSourceTags } from './config.js';
 
 const esc = s => String(s || '')
   .replace(/&/g, '&amp;')
@@ -109,7 +110,7 @@ export function llmsTxt(posts, siteUrl, siteName = 'Trending Now') {
     ...NAV_CATEGORIES.map(c => `- [${c}](${siteUrl}/c/${slugify(c)}): Latest verified ${c.toLowerCase()} briefings`),
     '',
     '## Latest Live Briefings',
-    ...posts.slice(0, 20).map(p => `- [${p.title}](${siteUrl}/p/${p.slug}): ${p.summary || p.what_happened || ''}`),
+    ...posts.slice(0, 20).map(p => `- [${p.title}](${siteUrl}/p/${p.slug}): ${stripInlineSourceTags(p.summary || p.what_happened || '', p.sources)}`),
     '',
   ];
   return lines.join('\n');
@@ -119,12 +120,14 @@ export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
   let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>${esc(siteName)}</title><link>${siteUrl}</link><atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/><atom:link rel="self" type="application/rss+xml" href="${siteUrl}/rss.xml"/><description>Live factual trending topic summaries verified across multiple public news sources</description><language>en</language>`;
   for (const p of posts) {
     const pub = new Date(p.updated_at || p.created_at).toUTCString();
-    const desc = p.summary || p.body || '';
+    const desc = stripInlineSourceTags(p.summary || p.body || '', p.sources);
+    const whatHappened = stripInlineSourceTags(p.what_happened || '', p.sources);
+    const whyTrending = stripInlineSourceTags(p.why_trending || '', p.sources);
     const cat = esc(p.category || 'News');
     const imgUrl = `${siteUrl}/i/${esc(p.slug)}.jpg`;
     let facts = [];
-    try { facts = JSON.parse(p.key_facts || p.bullets || '[]') || []; } catch {}
-    const fullHtml = `<p>${esc(desc)}</p><p>${esc(p.what_happened || '')}</p><p>${esc(p.why_trending || '')}</p>${facts.length ? `<ul>${facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}<p>Sources: ${esc(p.sources || '')}</p>`;
+    try { facts = (JSON.parse(p.key_facts || p.bullets || '[]') || []).map(f => stripInlineSourceTags(f, p.sources)).filter(Boolean); } catch {}
+    const fullHtml = `<p>${esc(desc)}</p>${whatHappened ? `<p>${esc(whatHappened)}</p>` : ''}${whyTrending ? `<p>${esc(whyTrending)}</p>` : ''}${facts.length ? `<ul>${facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}<p>Sources: ${esc(p.sources || '')}</p>`;
     x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><category>${cat}</category><pubDate>${pub}</pubDate><description>${esc(desc)}</description><content:encoded><![CDATA[${fullHtml.replace(/\]\]>/g, ']]&gt;')}]]></content:encoded><media:content url="${esc(imgUrl)}" medium="image"/><enclosure url="${esc(imgUrl)}" type="image/jpeg" length="8000"/></item>`;
   }
   return x + '</channel></rss>';

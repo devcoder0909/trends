@@ -3,7 +3,7 @@
  * strict JSON parsing, grounding verification, deterministic repair & failsafe.
  */
 
-import { BANNED_PHRASES, classifyCategory, isSensitive, findSensitiveMatch, formatDisplayTopic } from './config.js';
+import { BANNED_PHRASES, classifyCategory, isSensitive, findSensitiveMatch, formatDisplayTopic, stripInlineSourceTags } from './config.js';
 
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 
@@ -182,34 +182,31 @@ function repairDraft(draft, topic, sources) {
   if (!draft || typeof draft !== 'object') return draft;
   const out = { ...draft };
   const stripBreaking = s => String(s || '').replace(/^breaking(?:\s+news)?[:!\s-]+/i, '').trim();
+  const validOutlets = sources.map(s => (s.source || '').trim()).filter(Boolean);
+  const cleanText = s => stripInlineSourceTags(stripBreaking(s), validOutlets);
 
-  out.title = stripBreaking(out.title);
+  out.title = cleanText(out.title);
   if (out.title.length > 60 && out.title.length <= 75) {
     const clipped = out.title.slice(0, 59).replace(/\s+\S*$/, '').replace(/[,;:\-–\s]+$/, '');
     if (clipped.length >= 25) out.title = clipped;
   }
 
-  out.summary = stripBreaking(out.summary);
+  out.summary = cleanText(out.summary);
   if (countSentences(out.summary) > 1) {
     const one = firstSentence(out.summary);
     if (countWords(one) >= 5) out.summary = one;
   }
+  out.what_happened = cleanText(out.what_happened);
+  out.why_trending = cleanText(out.why_trending);
+  out.what_to_know_next = cleanText(out.what_to_know_next);
+
   if (countWords(out.summary) > 29 && out.what_happened) {
     const lead = firstSentence(out.what_happened);
     if (countWords(lead) >= 5 && countWords(lead) <= 29) out.summary = lead;
   }
 
-  const validOutlets = sources.map(s => (s.source || '').trim()).filter(Boolean);
   if (Array.isArray(out.key_facts)) {
-    out.key_facts = out.key_facts.map(f => {
-      let fact = stripBreaking(f);
-      if (!/\[[^\]]+\]/.test(fact) && !/\(([^)]+)\)\s*\.?$/.test(fact)) {
-        const lower = fact.toLowerCase();
-        const hit = validOutlets.find(o => lower.includes(o.toLowerCase()));
-        if (hit) fact = `${fact.replace(/[.!?]+$/, '')} [${hit}].`;
-      }
-      return fact;
-    });
+    out.key_facts = out.key_facts.map(f => cleanText(f)).filter(Boolean);
   }
   return out;
 }
@@ -249,29 +246,18 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
     return { ok: false, reason: `key_facts must have 3-5 items (got ${keyFacts.length})` };
   }
 
-  const validOutlets = sources.map(s => (s.source || '').toLowerCase()).filter(Boolean);
-  const normalizedFacts = keyFacts.map(fact => {
-    if (/\[[^\]]+\]/.test(fact)) return fact;
-    const paren = fact.match(/\(([^)]+)\)\s*\.?$/);
-    if (paren) {
-      const candidate = paren[1].trim().toLowerCase();
-      if (validOutlets.some(o => o.includes(candidate) || candidate.includes(o))) {
-        return fact.replace(/\(([^)]+)\)(\s*\.?)$/, '[$1]$2');
-      }
-    }
-    return fact;
-  });
+  const outletNames = sources.map(s => (s.source || '').trim()).filter(Boolean);
+  const cleanSummary = stripInlineSourceTags(summary, outletNames);
+  const cleanWhat = stripInlineSourceTags(whatHappened, outletNames);
+  const cleanWhy = stripInlineSourceTags(whyTrending, outletNames);
+  const cleanNext = stripInlineSourceTags(whatNext, outletNames);
+  const normalizedFacts = keyFacts.map(f => stripInlineSourceTags(f, outletNames)).filter(Boolean);
 
-  for (const fact of normalizedFacts) {
-    const bracket = fact.match(/\[([^\]]+)\]/);
-    if (!bracket) return { ok: false, reason: 'key_facts bullet missing [Outlet] attribution' };
-    const outletName = bracket[1].toLowerCase();
-    if (!validOutlets.some(o => o.includes(outletName) || outletName.includes(o))) {
-      return { ok: false, reason: `unrecognized outlet in bullet: [${bracket[1]}]` };
-    }
+  if (normalizedFacts.length < 3 || normalizedFacts.length > 5) {
+    return { ok: false, reason: `key_facts must have 3-5 items (got ${normalizedFacts.length})` };
   }
 
-  const bodyText = [summary, whatHappened, whyTrending, ...normalizedFacts, whatNext].join(' ');
+  const bodyText = [cleanSummary, cleanWhat, cleanWhy, ...normalizedFacts, cleanNext].join(' ');
   const totalWords = countWords(bodyText);
   if (totalWords < minWords || totalWords > 280) {
     return { ok: false, reason: `word count ${totalWords} out of range (${minWords}-280)` };
@@ -332,11 +318,11 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
     post: {
       title,
       category: draft.category || category,
-      summary,
-      what_happened: whatHappened,
-      why_trending: whyTrending,
+      summary: cleanSummary,
+      what_happened: cleanWhat,
+      why_trending: cleanWhy,
       key_facts: normalizedFacts,
-      what_to_know_next: whatNext,
+      what_to_know_next: cleanNext,
       also_searched: groundedAlso,
     },
   };
@@ -366,18 +352,18 @@ ${formattedSources}
 ${feedbackBlock}
 RULES:
 1. Plain English (Grade 8 level). No clickbait, emojis, "breaking" (unless in SOURCES), "shocking", or "in conclusion".
-2. Total 145-210 words across summary, what_happened, why_trending, key_facts, what_to_know_next (min 120, max 260).
-3. summary: ONE single sentence (15-26 words) stating why ${displayTopic} is trending.
-4. key_facts: 3-4 bullets, EACH ending with [Exact Outlet Name].
+2. NEVER write [Source Name] brackets, parenthetical outlet citations, or "According to <Outlet>" anywhere inside title, summary, what_happened, why_trending, key_facts, or what_to_know_next — sources are displayed separately.
+3. Total 160-230 words across summary, what_happened, why_trending, key_facts, what_to_know_next (min 120, max 260).
+4. summary: ONE direct answer sentence (15-26 words) stating why ${displayTopic} is trending.
 
 JSON ONLY:
 {
-  "title": "<SEO headline <=58 chars with ${displayTopic}>",
+  "title": "<SEO search-intent headline <=58 chars leading with ${displayTopic}>",
   "category": "${category}",
-  "summary": "<ONE sentence, 15-26 words>",
-  "what_happened": "<3 sentences (50-75 words) covering who, what, when, where>",
-  "why_trending": "<2 sentences (28-45 words) on current search interest>",
-  "key_facts": ["<fact 1 [Outlet]>", "<fact 2 [Outlet]>", "<fact 3 [Outlet]>"],
+  "summary": "<ONE sentence, 15-26 words, no source names>",
+  "what_happened": "<3 sentences (55-80 words) covering who, what, when, where>",
+  "why_trending": "<2 sentences (30-45 words) on current search interest>",
+  "key_facts": ["<concise fact 1 without brackets>", "<concise fact 2 without brackets>", "<concise fact 3 without brackets>"],
   "what_to_know_next": "<1-2 sentences (22-38 words) on upcoming timing or unconfirmed details>",
   "also_searched": ["<related query 1>", "<related query 2>", "<related query 3>"]
 }`;
@@ -663,28 +649,28 @@ export function mockGenerate(topic, category, sources) {
     if (title.length > 60) title = displayTopic.slice(0, 60).trim();
   }
 
-  const summary = `${displayTopic} is trending following recent reports from ${primary.source || 'news outlets'} and ${secondary.source || 'media sources'}.`;
+  const summary = `${displayTopic} is trending across ${category.toLowerCase()} news following major developments and official public updates.`;
   const trimmedSummary = countWords(summary) > 28
-    ? `${displayTopic} is trending across multiple verified news outlets.`
+    ? `${displayTopic} is trending following new confirmed updates.`
     : summary;
 
   const snip1 = primary.snippet ? `${primary.snippet.replace(/[.!?]+$/, '')}.` : '';
   const snip2 = secondary.snippet ? `${secondary.snippet.replace(/[.!?]+$/, '')}.` : '';
 
-  const what_happened = `${displayTopic} drew widespread ${category.toLowerCase()} coverage across major news feeds as new updates appeared online. According to ${primary.source || 'reports'}, ${s1}. ${snip1} Separate coverage from ${secondary.source || 'outlets'} noted that ${s2}. ${snip2}`.replace(/\s+/g, ' ').trim();
+  const what_happened = `${displayTopic} drew widespread ${category.toLowerCase()} interest as key updates surfaced online. ${s1}. ${snip1} Further details indicate that ${s2}. ${snip2}`.replace(/\s+/g, ' ').trim();
 
-  const why_trending = `Search interest around ${displayTopic} climbed rapidly after several news publishers released simultaneous updates and reporting on the story. Readers are looking for confirmed timelines, verified details, and primary coverage from listed news outlets.`;
+  const why_trending = `Search interest around ${displayTopic} climbed rapidly as readers sought confirmed timelines, verified details, and ongoing developments across multiple public updates.`;
 
   const bulletsRaw = [
-    `${s1} [${primary.source || 'News'}].`,
-    `${s2} [${secondary.source || primary.source || 'News'}].`,
-    `${(tertiary.snippet || s3).replace(/[.!?]+$/, '')} [${tertiary.source || secondary.source || 'News'}].`,
+    `${s1}.`,
+    `${s2}.`,
+    `${(tertiary.snippet || s3).replace(/[.!?]+$/, '')}.`,
   ];
   if (s.length >= 4 && s4 !== s3) {
-    bulletsRaw.push(`${s4} [${fourth.source || tertiary.source || 'News'}].`);
+    bulletsRaw.push(`${s4}.`);
   }
 
-  const what_to_know_next = `Further official details and follow-up updates on ${displayTopic} remain reported as developments continue. Any unverified claims outside these cited news outlets have not been officially confirmed yet.`;
+  const what_to_know_next = `Additional official announcements and follow-up details on ${displayTopic} are expected as the story develops. Unverified claims remain outside confirmed public statements.`;
 
   const also_searched = [
     `${displayTopic} update`,
@@ -826,7 +812,7 @@ export function buildUpdateFromFreshSources(existingSourceUrls = [], freshSource
     updated: true,
     updateEntry: {
       time: nowIso,
-      text: `${newest.title.replace(/[.!?]+$/, '')} [${newest.source}].`,
+      text: `${newest.title.replace(/[.!?]+$/, '')}.`,
     },
     mergedSources,
   };

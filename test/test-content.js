@@ -7,7 +7,7 @@
 
 import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
 import { formatSocialPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
-import { formatDisplayTopic } from '../src/config.js';
+import { formatDisplayTopic, stripInlineSourceTags } from '../src/config.js';
 import { rankTopics } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
 import { isNearDuplicateTopic } from '../src/index.js';
@@ -390,6 +390,33 @@ async function run() {
     globalThis.fetch = origFetch;
     __resetAiCooldowns();
     __resetSocialState();
+  }
+
+  // Verify inline [Outlet] / attribution stripping in content prose & bullets while preserving subjects
+  const c1 = stripInlineSourceTags(
+    'The Bureau of Meteorology issued a severe weather update on Thursday, November 26, 2026 [The Bureau of Meteorology]',
+    'The Bureau of Meteorology, Bendigo Advertiser, News24'
+  );
+  const c2 = stripInlineSourceTags(
+    'Tropical moisture is fueling wild conditions across parts of central Australia [News24]',
+    'The Bureau of Meteorology, Bendigo Advertiser, News24'
+  );
+  const c3 = stripInlineSourceTags(
+    'Another storm is forecast to hit, bringing more heavy rain to the region [Bendigo Advertiser]',
+    'The Bureau of Meteorology, Bendigo Advertiser, News24'
+  );
+  const noInlineMock = validRes.ok &&
+    !validRes.post.summary.includes('BBC Sport') &&
+    !validRes.post.what_happened.includes('ESPN') &&
+    validRes.post.key_facts.every(f => !/\[[^\]]+\]/.test(f));
+  if (c1 !== 'The Bureau of Meteorology issued a severe weather update on Thursday, November 26, 2026' ||
+      c2 !== 'Tropical moisture is fueling wild conditions across parts of central Australia' ||
+      c3 !== 'Another storm is forecast to hit, bringing more heavy rain to the region' ||
+      !noInlineMock) {
+    console.error(`[FAIL] Inline source tag restriction failed: c1="${c1}", noInlineMock=${noInlineMock}`);
+    failures++;
+  } else {
+    console.log('[PASS] Inline [Outlet] & prose source attribution stripped cleanly across articles & bullets');
   }
 
   console.log(`\nTotal failures: ${failures}`);

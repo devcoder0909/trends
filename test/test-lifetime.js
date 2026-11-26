@@ -375,6 +375,41 @@ async function run() {
     `cappedHits=${cappedHits}`
   );
 
+  // Case 9: Render-time inline [Outlet] stripping, Silo clustering, rel=prev/next, category pillar intro & LCP fetchpriority
+  uiDb.sqlite.prepare(
+    `UPDATE topics SET summary = ?, what_happened = ?, key_facts = ?, also_searched = ?, sources = ? WHERE slug = 'topic-12'`
+  ).run(
+    'Tropical weather systems expanded inland [News24].',
+    'According to Bendigo Advertiser, heavy rain hit central areas.',
+    JSON.stringify([
+      'The Bureau of Meteorology issued a severe weather update on Thursday, November 26, 2026 [The Bureau of Meteorology]',
+      'Tropical moisture is fueling wild conditions across parts of central Australia [News24]',
+      'Another storm is forecast to hit, bringing more heavy rain to the region [Bendigo Advertiser]',
+    ]),
+    JSON.stringify(['central australia storm', 'storm forecast']),
+    'The Bureau of Meteorology, Bendigo Advertiser, News24'
+  );
+  const pg1SiloHtml = await (await handleFetch(new Request('https://trends.example.com/'), uiEnv, ctx)).text();
+  const pg2SiloHtml = await (await handleFetch(new Request('https://trends.example.com/page/2'), uiEnv, ctx)).text();
+  const techHubHtml = await (await handleFetch(new Request('https://trends.example.com/c/tech'), uiEnv, ctx)).text();
+  const cleanPostHtml = await (await handleFetch(new Request('https://trends.example.com/p/topic-12'), uiEnv, ctx)).text();
+  record(
+    'Clean content without inline [Outlet] tags, Tech Silo clustering, rel=prev/next & LCP fetchpriority=high',
+    !cleanPostHtml.includes('[News24]') &&
+    !cleanPostHtml.includes('[Bendigo Advertiser]') &&
+    !cleanPostHtml.includes('[The Bureau of Meteorology]') &&
+    !cleanPostHtml.includes('According to Bendigo Advertiser') &&
+    cleanPostHtml.includes('Sources:</strong> The Bureau of Meteorology, Bendigo Advertiser, News24') &&
+    cleanPostHtml.includes('fetchpriority="high"') &&
+    cleanPostHtml.includes('More in Tech') &&
+    cleanPostHtml.includes('rel="nofollow"') &&
+    pg1SiloHtml.includes('<link rel="next" href="https://trends.example.com/page/2">') &&
+    pg1SiloHtml.includes('fetchpriority="high"') &&
+    pg2SiloHtml.includes('<link rel="prev" href="https://trends.example.com/">') &&
+    techHubHtml.includes('Live tech coverage hub tracking verified updates'),
+    'verified'
+  );
+
   const failed = results.filter(r => !r.ok).length;
   console.log(`\nTotal failures: ${failed}`);
   process.exit(failed ? 1 : 0);

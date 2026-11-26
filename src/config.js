@@ -102,6 +102,37 @@ export function formatDisplayTopic(raw) {
   }).join(' ');
 }
 
+/**
+ * Remove inline [Outlet], (Outlet), and attribution filler from content prose & bullets
+ * while preserving the dedicated Sources section untouched.
+ */
+export function stripInlineSourceTags(text, sourcesInput = '') {
+  let out = String(text || '')
+    .replace(/\s*\[[^\]\r\n]{2,64}\](?:\s*([.!?,;:]))?/g, (_, p) => (p || ''))
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  const sourceList = (Array.isArray(sourcesInput)
+    ? sourcesInput
+    : String(sourcesInput || '').split(','))
+    .map(s => String(s || '').trim())
+    .filter(s => s.length >= 2)
+    .sort((a, b) => b.length - a.length);
+
+  if (sourceList.length) {
+    const alt = sourceList.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    out = out
+      .replace(new RegExp(`\\s*(?:\\((?:${alt})\\)|[—–|\\-]\\s*(?:${alt}))\\s*([.!?,;:])?`, 'gi'), (_, p) => (p || ''))
+      .replace(new RegExp(`(?:^|[.!?]\\s+)According to (?:${alt}),?\\s+`, 'gi'), m => (m.startsWith('.') || m.startsWith('!') || m.startsWith('?') ? `${m[0]} ` : ''))
+      .replace(new RegExp(`(?:^|[.!?]\\s+)Separate coverage from (?:${alt}|outlets) noted (?:that\\s+)?`, 'gi'), m => (m.startsWith('.') || m.startsWith('!') || m.startsWith('?') ? `${m[0]} ` : ''))
+      .replace(new RegExp(`\\s+following recent reports from (?:${alt})(?:\\s+and\\s+(?:${alt}|media sources))?`, 'gi'), ' following recent public developments');
+  }
+
+  out = out.replace(/\.{2,}/g, '.').replace(/\s+([.!?,;:])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+  if (out) out = out.charAt(0).toUpperCase() + out.slice(1);
+  return out;
+}
+
 export function getSettings(env = {}) {
   return {
     maxDaily: Math.max(1, Number(env.MAX_DAILY || 200)),
