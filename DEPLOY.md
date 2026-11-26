@@ -186,6 +186,20 @@ node -e "console.log(new Date(Date.now() + 48*3600*1000).toISOString())"
 3. Submit `https://trends.example.com/sitemap.xml`
 4. IndexNow automatically notifies Bing and partner engines whenever posts are published, updated, extended, or deleted.
 
+### Optional: Google Indexing API v3 (`GOOGLE_INDEXING_KEY`)
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create/select a project.
+2. Enable **Web Search Indexing API**.
+3. Create a **Service Account** (**IAM & Admin → Service Accounts**), create a **JSON key**, and download it.
+4. Copy the service account email (e.g. `indexer@project.iam.gserviceaccount.com`).
+5. In **Google Search Console → Settings → Users and permissions**, add that email as an **Owner** of your property.
+6. Set the Worker secret with the contents of the downloaded JSON file:
+   ```bash
+   npx wrangler secret put GOOGLE_INDEXING_KEY
+   ```
+
+> **Note:** Google officially limits Indexing API v3 to `JobPosting` and `BroadcastEvent` pages (200 publish requests/day quota). The Worker also runs **WebSub** (`/rss.xml` → `pubsubhubbub.appspot.com`) and updates `/news-sitemap.xml` + `/sitemap.xml` automatically.
+
 ---
 
 ## Local Testing & Verification

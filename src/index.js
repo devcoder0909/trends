@@ -14,7 +14,7 @@ import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics } from './rss
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
 import { slugify, homePage, categoryPage, postPage, aboutPage, gonePage, endedPage } from './render.js';
-import { sitemapXml, newsSitemapXml, robotsTxt, rssFeed, pingIndexNow } from './seo.js';
+import { sitemapXml, newsSitemapXml, robotsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
 
 const MAX_TOPICS_PER_TICK = 4; // stays well below Cloudflare's 50 subrequest limit
 
@@ -119,7 +119,10 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso) {
     }
   }
 
-  if (updatedUrls.length) await pingIndexNow(env, updatedUrls);
+  if (updatedUrls.length) {
+    await pingIndexNow(env, updatedUrls);
+    await pingGoogleIndexing(env, updatedUrls, 'URL_UPDATED');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -135,8 +138,16 @@ export async function handleScheduled(env) {
 
   // 1. Evaluate tiered extensions BEFORE deleting expired posts
   const { extendedSlugs, deletedSlugs } = await processExpirationsAndExtensions(db, now, settings);
-  if (extendedSlugs.length) await pingIndexNow(env, extendedSlugs.map(s => `${siteUrl}/p/${s}`));
-  if (deletedSlugs.length) await pingIndexNow(env, deletedSlugs.map(s => `${siteUrl}/p/${s}`));
+  if (extendedSlugs.length) {
+    const extUrls = extendedSlugs.map(s => `${siteUrl}/p/${s}`);
+    await pingIndexNow(env, extUrls);
+    await pingGoogleIndexing(env, extUrls, 'URL_UPDATED');
+  }
+  if (deletedSlugs.length) {
+    const delUrls = deletedSlugs.map(s => `${siteUrl}/p/${s}`);
+    await pingIndexNow(env, delUrls);
+    await pingGoogleIndexing(env, delUrls, 'URL_DELETED');
+  }
 
   // Full 7-day cleanup across dedup, timed-out holds, stale queue, and rejected log
   const sevenDaysAgo = new Date(Date.now() - settings.seenTtlDays * 86400_000).toISOString();
@@ -317,7 +328,11 @@ export async function handleScheduled(env) {
     } catch { /* duplicate slug — skip gracefully */ }
   }
 
-  if (newUrls.length) await pingIndexNow(env, newUrls);
+  if (newUrls.length) {
+    await pingIndexNow(env, newUrls);
+    await pingWebSub(env, siteUrl);
+    await pingGoogleIndexing(env, newUrls.filter(u => u.includes('/p/')), 'URL_UPDATED');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

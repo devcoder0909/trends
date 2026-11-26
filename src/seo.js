@@ -1,6 +1,9 @@
 /**
- * SEO endpoints: XML Sitemap (posts + category hubs), 48h Google News Sitemap,
- * robots.txt, RSS 2.0, and IndexNow.
+ * SEO endpoints & instant indexing:
+ * - XML Sitemap (posts + category hubs), 48h Google News Sitemap, robots.txt, RSS 2.0 (with WebSub hub)
+ * - IndexNow (Bing, Yandex, DuckDuckGo)
+ * - WebSub / PubSubHubbub ping (free instant RSS notification)
+ * - Optional Google Indexing API v3 via Web Crypto RS256 Service Account JWT
  */
 
 import { slugify } from './render.js';
@@ -11,20 +14,20 @@ const esc = s => String(s || '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 
+let cachedGoogleToken = null;
+let cachedGoogleTokenExp = 0;
+
 export function sitemapXml(posts, siteUrl) {
   let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">';
   const latestMod = posts[0] ? (posts[0].updated_at || posts[0].created_at) : '';
   x += `<url><loc>${siteUrl}/</loc>${latestMod ? `<lastmod>${esc(latestMod)}</lastmod>` : ''}<changefreq>always</changefreq><priority>1.0</priority></url>`;
   x += `<url><loc>${siteUrl}/about</loc><priority>0.3</priority></url>`;
 
-  // Include active category hubs with accurate lastmod
   const catLatest = new Map();
   for (const p of posts) {
     const cSlug = slugify(p.category || 'News');
     const mod = p.updated_at || p.created_at;
-    if (!catLatest.has(cSlug) || mod > catLatest.get(cSlug)) {
-      catLatest.set(cSlug, mod);
-    }
+    if (!catLatest.has(cSlug) || mod > catLatest.get(cSlug)) catLatest.set(cSlug, mod);
   }
   for (const [cSlug, mod] of catLatest) {
     x += `<url><loc>${siteUrl}/c/${esc(cSlug)}</loc><lastmod>${esc(mod)}</lastmod><changefreq>hourly</changefreq><priority>0.7</priority></url>`;
@@ -38,11 +41,6 @@ export function sitemapXml(posts, siteUrl) {
   return x + '</urlset>';
 }
 
-/**
- * Google News sitemap — strictly limited to posts created in the last 48 hours.
- * Falls back to a valid homepage <url> entry if 0 recent posts exist so GSC
- * never fails schema validation with "Missing XML tag: url".
- */
 export function newsSitemapXml(posts, siteUrl, siteName = 'Trending Now', nowMs = Date.now()) {
   const cutoffMs = nowMs - 48 * 3600_000;
   let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">';
@@ -65,7 +63,7 @@ export const robotsTxt = siteUrl =>
   `User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/sitemap.xml\nSitemap: ${siteUrl}/news-sitemap.xml\n`;
 
 export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
-  let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>${esc(siteName)}</title><link>${siteUrl}</link><description>Live factual trending topic summaries</description>`;
+  let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${esc(siteName)}</title><link>${siteUrl}</link><atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/><atom:link rel="self" type="application/rss+xml" href="${siteUrl}/rss.xml"/><description>Live factual trending topic summaries</description>`;
   for (const p of posts) {
     const pub = new Date(p.updated_at || p.created_at).toUTCString();
     const desc = p.summary || p.body || '';
@@ -92,5 +90,94 @@ export async function pingIndexNow(env, urls) {
     if (!res.ok) console.error('IndexNow HTTP', res.status);
   } catch (err) {
     console.error('IndexNow error:', err.message);
+  }
+}
+
+export async function pingWebSub(env, siteUrl) {
+  if (String(env.DEV_MODE || '').toLowerCase() === 'true') return;
+  try {
+    await fetch('https://pubsubhubbub.appspot.com/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `hub.mode=publish&hub.url=${encodeURIComponent(`${siteUrl}/rss.xml`)}`,
+    });
+  } catch { /* best-effort */ }
+}
+
+function b64url(input) {
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : new Uint8Array(input);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function getGoogleAccessToken(serviceAccountJson) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (cachedGoogleToken && nowSec < cachedGoogleTokenExp - 60) return cachedGoogleToken;
+
+  const sa = typeof serviceAccountJson === 'string' ? JSON.parse(serviceAccountJson) : serviceAccountJson;
+  const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const claim = b64url(JSON.stringify({
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/indexing',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: nowSec,
+    exp: nowSec + 3600,
+  }));
+
+  const pemBody = sa.private_key
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/\s+/g, '');
+  const binary = atob(pemBody);
+  const keyBytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) keyBytes[i] = binary.charCodeAt(i);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8',
+    keyBytes.buffer,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const unsigned = `${header}.${claim}`;
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(unsigned));
+  const jwt = `${unsigned}.${b64url(sig)}`;
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${encodeURIComponent(jwt)}`,
+  });
+  if (!res.ok) throw new Error(`Google OAuth HTTP ${res.status}`);
+  const data = await res.json();
+  cachedGoogleToken = data.access_token;
+  cachedGoogleTokenExp = nowSec + (data.expires_in || 3600);
+  return cachedGoogleToken;
+}
+
+/**
+ * Notify Google Search Indexing API v3 when GOOGLE_INDEXING_KEY secret is set.
+ * Type: 'URL_UPDATED' | 'URL_DELETED'
+ */
+export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
+  const uniqueUrls = [...new Set(urls)].filter(Boolean).slice(0, 10);
+  if (!env.GOOGLE_INDEXING_KEY || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
+  try {
+    const token = await getGoogleAccessToken(env.GOOGLE_INDEXING_KEY);
+    for (const url of uniqueUrls) {
+      const res = await fetch('https://indexing.googleapis.com/v3/urlNotifications:publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ url, type }),
+      });
+      if (!res.ok) console.error('Google Indexing HTTP', res.status, url);
+    }
+  } catch (err) {
+    console.error('Google Indexing error:', err.message);
   }
 }
