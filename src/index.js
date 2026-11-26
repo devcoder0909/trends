@@ -197,6 +197,41 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso, budget) {
   return updatedUrls;
 }
 
+/**
+ * Enforce 24-hour even publishing across all timezones (~9/hr, >=6m apart)
+ * so daily quota doesn't exhaust in a few hours around midnight UTC.
+ */
+export async function getPublishAllowance(db, settings, nowMs = Date.now()) {
+  const iso = new Date(nowMs).toISOString();
+  const dayPrefix = `${iso.slice(0, 10)}%`;
+  const hourPrefix = `${iso.slice(0, 13)}%`;
+
+  const row = await db.prepare(
+    `SELECT
+       COUNT(*) AS day_cnt,
+       SUM(CASE WHEN created_at LIKE ? THEN 1 ELSE 0 END) AS hour_cnt,
+       MAX(created_at) AS latest_at
+     FROM topics
+     WHERE status = 'published' AND created_at LIKE ?`
+  ).bind(hourPrefix, dayPrefix).first();
+
+  const dayCount = Number(row?.day_cnt || 0);
+  const hourCount = Number(row?.hour_cnt || 0);
+  if (dayCount >= settings.maxDaily) {
+    return { canPublish: false, reason: 'daily_cap', dayCount, hourCount };
+  }
+  if (!settings.devMode && hourCount >= settings.maxHourly) {
+    return { canPublish: false, reason: 'hourly_cap', dayCount, hourCount };
+  }
+  if (!settings.devMode && settings.publishGapMins > 0 && row?.latest_at) {
+    const elapsedMs = nowMs - Date.parse(row.latest_at);
+    if (Number.isFinite(elapsedMs) && elapsedMs >= 0 && elapsedMs < settings.publishGapMins * 60_000) {
+      return { canPublish: false, reason: 'spacing', dayCount, hourCount };
+    }
+  }
+  return { canPublish: true, reason: 'ok', dayCount, hourCount };
+}
+
 export async function canSendWebhookNow(db, env, nowMs = Date.now()) {
   if (!env.SOCIAL_WEBHOOK_URL) return false;
   const gapMins = Math.max(0, Number(env.WEBHOOK_MIN_GAP_MINS ?? 90));
@@ -275,32 +310,48 @@ export async function handleScheduled(env) {
   // 2. Check existing live posts (including extended posts) for new headlines
   const updatedUrls = await updateLiveTopics(db, env, settings, siteUrl, now, budget);
 
-  // 3. Count today's published posts & promote queued topics if under daily cap
-  let count = (await db.prepare(
-    "SELECT COUNT(*) as c FROM topics WHERE status = 'published' AND created_at LIKE ?"
-  ).bind(todayStr() + '%').first())?.c || 0;
+  // 3. Enforce 24h even pacing (~9/hr, >=6m apart) and promote max 1 queued topic per paced slot
+  const allowance = await getPublishAllowance(db, settings, Date.now());
+  let count = allowance.dayCount;
+  let canPublishNow = allowance.canPublish;
 
   const promotedUrls = [];
-  if (count < settings.maxDaily) {
-    const queued = (await db.prepare(
-      "SELECT id, slug FROM topics WHERE status = 'queued' ORDER BY created_at LIMIT ?"
-    ).bind(settings.maxDaily - count).all()).results || [];
-    for (const q of queued) {
-      await db.prepare("UPDATE topics SET status = 'published' WHERE id = ?").bind(q.id).run();
-      promotedUrls.push(`${siteUrl}/p/${q.slug}`);
-      count++;
-    }
-  }
-
-  // Stop burning Trends/News/LLM quota once today's cap + 5-item reserve queue is full
-  const queuedLeft = count >= settings.maxDaily
-    ? ((await db.prepare("SELECT COUNT(*) as c FROM topics WHERE status = 'queued'").first())?.c || 0)
-    : 0;
-  const shouldFetchNew = settings.devMode || count < settings.maxDaily || queuedLeft < 5;
-
   const newUrls = [];
   const publishedPosts = [];
   const touchedCats = new Set();
+
+  if (canPublishNow) {
+    const queuedLimit = settings.devMode ? Math.max(1, settings.maxDaily - count) : 1;
+    const queued = (await db.prepare(
+      "SELECT id, slug, title, summary, key_facts, category, topic, sources FROM topics WHERE status = 'queued' ORDER BY approx_traffic DESC, created_at DESC LIMIT ?"
+    ).bind(queuedLimit).all()).results || [];
+    for (const q of queued) {
+      const pubAt = isoNow();
+      const pubExp = new Date(Date.now() + settings.baseTtlHours * 3600_000).toISOString();
+      await db.prepare(
+        "UPDATE topics SET status = 'published', created_at = ?, updated_at = ?, expires_at = ? WHERE id = ?"
+      ).bind(pubAt, pubAt, pubExp, q.id).run();
+      const catPath = `/c/${slugify(q.category || 'News')}`;
+      touchedCats.add(catPath);
+      promotedUrls.push(`${siteUrl}/p/${q.slug}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
+      let facts = [];
+      try { facts = JSON.parse(q.key_facts || '[]') || []; } catch {}
+      publishedPosts.push({
+        slug: q.slug,
+        title: q.title,
+        summary: q.summary,
+        key_facts: facts,
+        category: q.category,
+        topic: q.topic,
+        sources: q.sources,
+      });
+      count++;
+      if (!settings.devMode && settings.publishGapMins > 0) canPublishNow = false;
+    }
+  }
+
+  // Only fetch Trends RSS, Google News & AI during an open publish slot (cuts idle API/D1 usage ~80%)
+  const shouldFetchNew = settings.devMode || canPublishNow;
 
   if (shouldFetchNew) {
     // 4. Fetch Trends RSS — always fetch primary geo (US) + rotate 2 secondary geos per minute
@@ -487,6 +538,7 @@ export async function handleScheduled(env) {
             sources: sourcesCsv,
           });
           count++;
+          if (!settings.devMode && settings.publishGapMins > 0) break;
         }
       } catch { /* duplicate slug — skip gracefully */ }
     }

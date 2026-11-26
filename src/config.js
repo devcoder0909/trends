@@ -134,8 +134,13 @@ export function stripInlineSourceTags(text, sourcesInput = '') {
 }
 
 export function getSettings(env = {}) {
+  const maxDaily = Math.max(1, Number(env.MAX_DAILY || 200));
+  const maxHourly = Math.max(1, Number(env.MAX_HOURLY || Math.ceil(maxDaily / 24)));
+  const publishGapMins = Math.max(0, Number(env.PUBLISH_GAP_MINS ?? 6));
   return {
-    maxDaily: Math.max(1, Number(env.MAX_DAILY || 200)),
+    maxDaily,
+    maxHourly,
+    publishGapMins,
     baseTtlHours: Math.max(1, Number(env.BASE_TTL_HOURS || 48)),
     extendedTtlHours: Math.max(1, Number(env.EXTENDED_TTL_HOURS || 168)),
     extendMinHits: Math.max(1, Number(env.EXTEND_MIN_HITS || 1)),

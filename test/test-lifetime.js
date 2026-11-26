@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { handleFetch, handleScheduled, canSendWebhookNow } from '../src/index.js';
+import { handleFetch, handleScheduled, canSendWebhookNow, getPublishAllowance } from '../src/index.js';
 import { processExpirationsAndExtensions } from '../src/lifetime.js';
 import { getSettings } from '../src/config.js';
 import { parseTrendsRSS } from '../src/rss.js';
@@ -426,6 +426,28 @@ async function run() {
   const wh2 = await canSendWebhookNow(uiDb, whEnv, nowMs + 30 * 60_000);
   const wh3 = await canSendWebhookNow(uiDb, whEnv, nowMs + 95 * 60_000);
   record('Webhook free-tier pacing blocks bursts <90m and allows after 90m', wh1 && !wh2 && wh3, `w1=${wh1}, w2=${wh2}, w3=${wh3}`);
+
+  // Case 11: 24-hour even publishing allowance (spacing 6m, hourly cap 9, daily cap)
+  const paceDb = createD1Shim('schema.sql');
+  const paceSettings = getSettings({ MAX_DAILY: '200', MAX_HOURLY: '9', PUBLISH_GAP_MINS: '6' });
+  const baseHourMs = Date.UTC(2026, 10, 27, 10, 0, 0);
+  for (let i = 0; i < 8; i++) {
+    const tIso = new Date(baseHourMs + i * 6 * 60_000).toISOString();
+    insertPost(paceDb, { slug: `pace-${i}`, title: `Pace Story ${i}`, createdAt: tIso, expiresAt: new Date(baseHourMs + 48 * 3600_000).toISOString() });
+  }
+  const pTooSoon = await getPublishAllowance(paceDb, paceSettings, baseHourMs + 45 * 60_000); // 3m after last post
+  const pAllowed9th = await getPublishAllowance(paceDb, paceSettings, baseHourMs + 49 * 60_000); // 7m after 8th post
+  insertPost(paceDb, { slug: 'pace-8', title: 'Pace Story 8', createdAt: new Date(baseHourMs + 49 * 60_000).toISOString(), expiresAt: new Date(baseHourMs + 48 * 3600_000).toISOString() });
+  const pHourFull = await getPublishAllowance(paceDb, paceSettings, baseHourMs + 57 * 60_000); // 9th done -> hour full
+  const pNextHour = await getPublishAllowance(paceDb, paceSettings, baseHourMs + 65 * 60_000); // next hour 11:05 -> open
+  record(
+    '24h pacing blocks <6m bursts & 9/hr hourly saturation, opens next hour',
+    !pTooSoon.canPublish && pTooSoon.reason === 'spacing' &&
+    pAllowed9th.canPublish &&
+    !pHourFull.canPublish && pHourFull.reason === 'hourly_cap' &&
+    pNextHour.canPublish,
+    `soon=${pTooSoon.reason}, ok9=${pAllowed9th.canPublish}, full=${pHourFull.reason}, nextHr=${pNextHour.canPublish}`
+  );
 
   const failed = results.filter(r => !r.ok).length;
   console.log(`\nTotal failures: ${failed}`);
