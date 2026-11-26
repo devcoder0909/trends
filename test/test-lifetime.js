@@ -300,42 +300,50 @@ async function run() {
     `og=${ogBytes.length}B, postOg=${ogPostRes.status}, fav=${favRes.status}`
   );
 
-  // Case 6: Remote RSS image parsing, non-lazy first image + lazy others, colored headline links & CSP
+  // Case 6: First-party indexable images (/i/:slug.jpg), uniform 16:9 cards, SwG snippet & CSP
   const rssParsed = parseTrendsRSS(
     `<rss xmlns:ht="https://trends.google.com/trending/rss"><channel><item><title>Sample Photo Story</title><ht:approx_traffic>50,000+</ht:approx_traffic><ht:picture>https://encrypted-tbn0.gstatic.com/images?q=tbn:TESTPIC</ht:picture><ht:picture_source>AP News</ht:picture_source></item></channel></rss>`
   );
-  uiDb.sqlite.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE slug IN (?, ?)').run(
-    'https://encrypted-tbn0.gstatic.com/images?q=tbn:TESTPIC', 'AP News', 'topic-15', 'topic-14'
+  uiDb.sqlite.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE slug = ?').run(
+    'https://encrypted-tbn0.gstatic.com/images?q=tbn:TESTPIC', 'AP News', 'topic-15'
   );
+  uiDb.sqlite.prepare('UPDATE topics SET image_url = ? WHERE slug = ?').run('', 'topic-13');
   const imgHomeRes = await handleFetch(new Request('https://trends.example.com/'), uiEnv, ctx);
   const imgHomeHtml = await imgHomeRes.text();
   const imgTags = imgHomeHtml.match(/<img\b[^>]*>/g) || [];
   const imgPostRes = await handleFetch(new Request('https://trends.example.com/p/topic-15'), uiEnv, ctx);
   const imgPostHtml = await imgPostRes.text();
+  const imgProxyRes = await handleFetch(new Request('https://trends.example.com/i/topic-13.jpg'), uiEnv, ctx);
+  const imgProxyMissing = await handleFetch(new Request('https://trends.example.com/i/does-not-exist.jpg'), uiEnv, ctx);
+  const cspHeader = imgPostRes.headers.get('content-security-policy') || '';
   record(
-    'Remote images render with attribution, first-eager/rest-lazy, colored links & HTTPS CSP',
+    'First-party indexable /i/:slug.jpg images, uniform 10/10 16:9 cards & SwG CAowzZvEDA:openaccess',
     rssParsed.length === 1 && rssParsed[0].imageUrl.includes('TESTPIC') && rssParsed[0].imageSource === 'AP News' &&
-    imgTags.length === 2 && !imgTags[0].includes('loading="lazy"') && imgTags[1].includes('loading="lazy"') &&
-    imgTags[0].includes('width="300" height="168"') &&
+    imgTags.length === 10 && imgTags.every(t => t.includes('src="/i/') && t.includes('width="320" height="180"')) &&
+    !imgTags[0].includes('loading="lazy"') && imgTags[1].includes('loading="lazy"') &&
+    imgProxyRes.status === 200 && (imgProxyRes.headers.get('content-type') || '').startsWith('image/') &&
+    imgProxyMissing.status === 404 &&
     imgPostHtml.includes('Image: AP News') &&
-    (imgHomeRes.headers.get('content-security-policy') || '').includes('img-src \'self\' https: data:') &&
-    !imgHomeHtml.includes('body,.b,h2 a'),
-    `imgs=${imgTags.length}`
+    imgPostHtml.includes('https://news.google.com/swg/js/v1/swg-basic.js') &&
+    imgPostHtml.includes('CAowzZvEDA:openaccess') &&
+    cspHeader.includes('https://news.google.com') &&
+    !imgHomeHtml.includes('body,.b,.sum,.bt,input{') === false,
+    `imgs=${imgTags.length}, proxy=${imgProxyRes.status}, missing=${imgProxyMissing.status}`
   );
 
-  // Case 7: GEO, AI Search Crawlers, llms.txt, <image:image> sitemap, rich RSS & NewsMediaOrganization schema
+  // Case 7: GEO, AI Search Crawlers, llms.txt, first-party <image:image> sitemap, rich RSS & NewsMediaOrganization schema
   const robotsText = await (await handleFetch(new Request('https://trends.example.com/robots.txt'), uiEnv, ctx)).text();
   const llmsRes = await handleFetch(new Request('https://trends.example.com/llms.txt'), uiEnv, ctx);
   const llmsText = await llmsRes.text();
   const uiSitemap = await (await handleFetch(new Request('https://trends.example.com/sitemap.xml'), uiEnv, ctx)).text();
   const uiRss = await (await handleFetch(new Request('https://trends.example.com/rss.xml'), uiEnv, ctx)).text();
   record(
-    'robots.txt AI bots, /llms.txt, <image:image> sitemap, <content:encoded> RSS & NewsMediaOrganization schema',
-    robotsText.includes('OAI-SearchBot') && robotsText.includes('Claude-SearchBot') &&
-    robotsText.includes('PerplexityBot') && robotsText.includes('Content-Signal:') &&
+    'robots.txt AI bots, /llms.txt, own-domain /i/*.jpg sitemap/RSS & NewsMediaOrganization schema',
+    robotsText.includes('Googlebot-Image') && robotsText.includes('OAI-SearchBot') &&
+    robotsText.includes('Claude-SearchBot') && robotsText.includes('PerplexityBot') &&
     llmsRes.status === 200 && llmsText.includes('# Trending Now') && llmsText.includes('/p/topic-15') &&
-    uiSitemap.includes('xmlns:image=') && uiSitemap.includes('<image:image>') &&
-    uiRss.includes('<content:encoded>') && uiRss.includes('<media:content') &&
+    uiSitemap.includes('xmlns:image=') && uiSitemap.includes('<image:loc>https://trends.example.com/i/topic-15.jpg</image:loc>') &&
+    uiRss.includes('<content:encoded>') && uiRss.includes('https://trends.example.com/i/topic-15.jpg') &&
     imgPostHtml.includes('NewsMediaOrganization'),
     `llms=${llmsRes.status}`
   );

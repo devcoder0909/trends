@@ -38,7 +38,7 @@ export function sitemapXml(posts, siteUrl) {
   for (const p of posts) {
     const lastmod = p.updated_at || p.created_at;
     const priority = p.extended ? '0.9' : '0.8';
-    const imgLoc = p.image_url || `${siteUrl}/og/${esc(p.slug)}.png`;
+    const imgLoc = `${siteUrl}/i/${esc(p.slug)}.jpg`;
     x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><lastmod>${esc(lastmod)}</lastmod><priority>${priority}</priority><image:image><image:loc>${esc(imgLoc)}</image:loc><image:title>${esc(p.title)}</image:title></image:image></url>`;
   }
   return x + '</urlset>';
@@ -74,14 +74,20 @@ export const robotsTxt = siteUrl => [
   'User-agent: Googlebot-News',
   'Allow: /',
   '',
+  'User-agent: Googlebot-Image',
+  'Allow: /',
+  '',
   'User-agent: OAI-SearchBot',
   'Allow: /',
+  'Content-Signal: search=yes, ai-input=yes',
   '',
   'User-agent: Claude-SearchBot',
   'Allow: /',
+  'Content-Signal: search=yes, ai-input=yes',
   '',
   'User-agent: PerplexityBot',
   'Allow: /',
+  'Content-Signal: search=yes, ai-input=yes',
   '',
   `Sitemap: ${siteUrl}/sitemap.xml`,
   `Sitemap: ${siteUrl}/news-sitemap.xml`,
@@ -115,11 +121,11 @@ export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
     const pub = new Date(p.updated_at || p.created_at).toUTCString();
     const desc = p.summary || p.body || '';
     const cat = esc(p.category || 'News');
-    const imgUrl = p.image_url || `${siteUrl}/og/${esc(p.slug)}.png`;
+    const imgUrl = `${siteUrl}/i/${esc(p.slug)}.jpg`;
     let facts = [];
     try { facts = JSON.parse(p.key_facts || p.bullets || '[]') || []; } catch {}
     const fullHtml = `<p>${esc(desc)}</p><p>${esc(p.what_happened || '')}</p><p>${esc(p.why_trending || '')}</p>${facts.length ? `<ul>${facts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}<p>Sources: ${esc(p.sources || '')}</p>`;
-    x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><category>${cat}</category><pubDate>${pub}</pubDate><description>${esc(desc)}</description><content:encoded><![CDATA[${fullHtml.replace(/\]\]>/g, ']]&gt;')}]]></content:encoded><media:content url="${esc(imgUrl)}" medium="image"/><enclosure url="${esc(imgUrl)}" type="${p.image_url ? 'image/jpeg' : 'image/png'}" length="6000"/></item>`;
+    x += `<item><title>${esc(p.title)}</title><link>${siteUrl}/p/${esc(p.slug)}</link><guid>${siteUrl}/p/${esc(p.slug)}</guid><category>${cat}</category><pubDate>${pub}</pubDate><description>${esc(desc)}</description><content:encoded><![CDATA[${fullHtml.replace(/\]\]>/g, ']]&gt;')}]]></content:encoded><media:content url="${esc(imgUrl)}" medium="image"/><enclosure url="${esc(imgUrl)}" type="image/jpeg" length="8000"/></item>`;
   }
   return x + '</channel></rss>';
 }

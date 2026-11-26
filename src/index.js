@@ -15,7 +15,7 @@ import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics } from './rss
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
 import {
-  PER_PAGE, BACK_SCRIPT_HASH, slugify,
+  PER_PAGE, BACK_SCRIPT_HASH, SWG_SCRIPT_HASH, slugify,
   homePage, categoryPage, searchPage, postPage, aboutPage, notFoundPage, gonePage, endedPage,
 } from './render.js';
 import { sitemapXml, newsSitemapXml, robotsTxt, llmsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
@@ -47,7 +47,7 @@ const todayStr = () => isoNow().slice(0, 10);
 
 const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-  'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; script-src '${BACK_SCRIPT_HASH}'; img-src 'self' https: data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
+  'Content-Security-Policy': `default-src 'self' https://*.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://news.google.com https://www.gstatic.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://www.gstatic.com data:; script-src 'self' '${BACK_SCRIPT_HASH}' '${SWG_SCRIPT_HASH}' https://news.google.com https://*.google.com https://www.gstatic.com; img-src 'self' https: data:; frame-src https://news.google.com https://*.google.com; connect-src 'self' https://news.google.com https://*.google.com https://www.gstatic.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -520,6 +520,7 @@ export async function handleFetch(request, env, ctx) {
     path === '/llms.txt' ||
     path === '/og.png' ||
     path.startsWith('/og/') ||
+    path.startsWith('/i/') ||
     (path.startsWith('/c/') && !url.searchParams.has('page')) ||
     path.startsWith('/p/')
   );
@@ -548,6 +549,50 @@ export async function handleFetch(request, env, ctx) {
     const png = await generateOgPng({ siteName: settings.siteName, host: hostNorm });
     return cacheAndReturn(new Response(png, {
       headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, s-maxage=86400, max-age=3600', ...SECURITY_HEADERS },
+    }));
+  }
+
+  const imgProxyMatch = path.match(/^\/i\/([a-z0-9-]+)\.(?:jpg|jpeg|png)$/i);
+  if (imgProxyMatch) {
+    const slug = imgProxyMatch[1].toLowerCase();
+    const post = await db.prepare(
+      "SELECT title, category, image_url FROM topics WHERE slug = ? AND status = 'published' AND expires_at > ?"
+    ).bind(slug, now).first();
+    if (!post) return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
+
+    if (post.image_url) {
+      try {
+        const up = await fetch(post.image_url, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: timeoutSig(6000),
+        });
+        const ct = up.headers.get('content-type') || '';
+        if (up.ok && ct.startsWith('image/')) {
+          return cacheAndReturn(new Response(up.body, {
+            headers: {
+              'Content-Type': ct,
+              'Cache-Control': 'public, s-maxage=86400, max-age=3600, stale-while-revalidate=86400',
+              'X-Robots-Tag': 'index, max-image-preview:large',
+              ...SECURITY_HEADERS,
+            },
+          }));
+        }
+      } catch { /* fall through to zero-storage PNG card */ }
+    }
+
+    const png = await generateOgPng({
+      title: post.title,
+      category: post.category,
+      siteName: settings.siteName,
+      host: hostNorm,
+    });
+    return cacheAndReturn(new Response(png, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, s-maxage=3600, max-age=600',
+        'X-Robots-Tag': 'index, max-image-preview:large',
+        ...SECURITY_HEADERS,
+      },
     }));
   }
 
