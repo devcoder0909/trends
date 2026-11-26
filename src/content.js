@@ -455,7 +455,7 @@ export async function callLLM(env, prompt, budget = null) {
       });
       if (!res.ok) {
         errors.push(`${name} ${model}: HTTP ${res.status}`);
-        if ([401, 402, 403, 404, 429].includes(res.status)) {
+        if ([401, 402, 403, 404, 410, 429].includes(res.status)) {
           openaiBlockedUntil.set(name, nowMs + (res.status === 429 ? 15 * 60_000 : 6 * 3600_000));
         }
         return null;
@@ -576,7 +576,7 @@ export async function callLLM(env, prompt, budget = null) {
   if (primaryText) return primaryText;
 
   const extraProviders = [
-    ['nvidia', 'https://integrate.api.nvidia.com/v1/chat/completions', env.NVIDIA_API_KEY, env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct'],
+    ['nvidia', 'https://integrate.api.nvidia.com/v1/chat/completions', env.NVIDIA_API_KEY, env.NVIDIA_MODEL || 'nvidia/nemotron-3.5-bolt-e4b'],
     ['mistral', 'https://api.mistral.ai/v1/chat/completions', env.MISTRAL_API_KEY, env.MISTRAL_MODEL || 'mistral-small-latest'],
     ['openrouter', 'https://openrouter.ai/api/v1/chat/completions', env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL || 'openrouter/free', { 'X-Title': 'Trending Now' }],
     ['cerebras', 'https://api.cerebras.ai/v1/chat/completions', env.CEREBRAS_API_KEY, env.CEREBRAS_MODEL || 'llama3.1-8b'],
