@@ -347,6 +347,8 @@ async function run() {
     uiSitemap.includes('xmlns:image=') && uiSitemap.includes('<image:loc>https://trends.example.com/i/topic-15.jpg</image:loc>') &&
     uiRss.includes('<content:encoded>') && uiRss.includes('https://trends.example.com/i/topic-15.jpg') &&
     imgPostHtml.includes('NewsMediaOrganization') &&
+    imgPostHtml.includes('<section id="facts">') && imgPostHtml.includes('<section id="sources">') &&
+    imgPostHtml.includes('<div class="r g">') && imgHomeHtml.includes('grid-template-columns:5fr 7fr') &&
     cspHeader.includes("object-src 'none'") &&
     wwwHttps.status === 301 && wwwHttps.headers.get('location') === 'https://trends.example.com/p/topic-15?ref=1' &&
     wwwHttp.status === 301 && wwwHttp.headers.get('location') === 'https://trends.example.com/robots.txt' &&

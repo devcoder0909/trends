@@ -24,7 +24,7 @@ export const slugify = s =>
     .slice(0, 80);
 
 // Inline CSS (< 1.5KB) — Google News dark theme (#202124 / #292a2d / #8ab4f8 / #81c995)
-export const CSS = `*{margin:0;padding:0}body{font:15px/1.4 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}a:hover{color:#d2e3fc}.k{color:#81c995}p,ul,h1,h2,img{margin:4px 0}p,ul{color:#bdc1c6}a{text-decoration:none}h1,h2,.b,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px}ul{padding-left:16px}.w{max-width:820px;margin:0 auto;padding:8px}header{border-bottom:1px solid #3c4043}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 9em;padding:2px 2px 2px 8px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.qf:focus-within,a.bt:hover{border-color:#8ab4f8}.t{gap:12px;overflow:auto;scrollbar-width:none}.t a{white-space:nowrap;padding:7px 0;border-bottom:3px solid #0000}.t .on,.t a:hover{border-color:#8ab4f8}h1 i{padding:5px;background:#81c995}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:6px 12px;background:#303134;border-radius:99px;cursor:pointer}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:12px;margin:8px 0}.c,img,h1 i{border-radius:12px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.p{margin-top:8px}@media(min-width:640px){.r{display:grid;grid-template-columns:1fr 1fr;gap:12px}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 12px}}`;
+export const CSS = `*{margin:0;padding:0}body{font:14px/1.45 sans-serif;background:#202124}body,.b,.sum,.bt,input{color:#e8eaed}.m,.t a{color:#9aa0a6}a,.b b,.t .on{color:#8ab4f8}.k{color:#81c995}p,ul{color:#bdc1c6}p,ul,h1{margin:4px 0}a{text-decoration:none}h1,h2,.b,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px;margin:9px 0 4px}ul{padding-left:16px}header{border-bottom:1px solid #3c4043}.w{max-width:840px;margin:0 auto;padding:8px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:6px}.b{margin-right:auto}.qf{flex:1 1 20em;padding:2px 3px 2px 10px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto;scrollbar-width:none}.t a{white-space:nowrap;padding:7px 0;border-bottom:3px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#8ab4f8}.m{font-size:12px}.bt,.pg{justify-content:center}.bt{padding:4px 10px;background:#303134;border-radius:99px}.bt,.c{border:1px solid #3c4043}.bt.on{background:#8ab4f8;color:#202124;border:0}.c{background:#292a2d;padding:10px;margin:8px 0}.c,img{border-radius:10px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover}.sum,.u{border-left:2px solid #8ab4f8;padding-left:8px}.u{border-color:#fdd663}.d{border-top:1px solid #3c4043;padding-top:8px}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:12px}.g{grid-template-columns:1fr 1fr}.d{border:0;border-left:1px solid #3c4043;padding:0 0 0 12px}h1{font-size:21px}}`;
 
 export const BACK_SCRIPT = `document.querySelectorAll('[data-bk]').forEach(function(a){a.addEventListener('click',function(e){try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){e.preventDefault();history.back()}}catch(x){}})})`;
 export const BACK_SCRIPT_HASH = 'sha256-gYnBAx/IGgY222gaMwV06vj32azHtsaxP2c3Mm8K7EY=';
@@ -114,15 +114,17 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
+const LOGO_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#34a853"/><path d="M6.5 14.5l4-4 2.5 2.5 4.5-4.5v2.5H19V6.5h-4.5V8H17l-4 4-2.5-2.5-5 5z" fill="#fff"/></svg>';
+
 function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
   const parts = String(siteName || 'Trending Now').trim().split(/\s+/);
   const brandHtml = parts.length > 1
-    ? `<b>${esc(parts[0])}</b> ${esc(parts.slice(1).join(' '))}`
-    : `<b>${esc(siteName)}</b>`;
+    ? `${LOGO_SVG}<span><b>${esc(parts[0])}</b> ${esc(parts.slice(1).join(' '))}</span>`
+    : `${LOGO_SVG}<span><b>${esc(siteName)}</b></span>`;
   const tab = (slug, label, href) =>
     `<a${activeTab === slug ? ' class="on"' : ''} href="${href}">${label}</a>`;
   const navLinks = tab('home', 'Home', '/') + NAV_CATEGORIES.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
-  return `<header><div class="w h"><div class="f"><a class="b" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics, news &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
+  return `<header><div class="w h"><div class="f"><a class="b f" href="/">${brandHtml}</a><form class="f bt qf" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Search</button></form></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
 }
 
 function htmlFoot(email) {
@@ -225,47 +227,55 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
   left += `<p class="m">${showCategory ? `<a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · ` : ''}<time datetime="${esc(p.created_at)}">${relTime}</time>`;
   if (p.updated_at && p.updated_at !== p.created_at) left += ` · Updated ${timeAgo(p.updated_at, nowMs)}`;
   left += `</p><h2><a href="/p/${esc(p.slug)}">${esc(p.title)}</a></h2>`;
-  if (lead) left += `<p class="sum">${esc(lead)}</p>`;
-  if (latestUpdate) {
-    left += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdate.text)}</p>`;
-  }
   if (p.sources) left += `<p class="m"><strong>Sources:</strong> ${esc(p.sources)}</p>`;
 
-  let right = '';
+  let right = lead ? `<p class="sum">${esc(lead)}</p>` : '';
+  if (latestUpdate) {
+    right += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdate.text)}</p>`;
+  }
   if (keyFacts.length) {
     right += '<p class="m"><strong>Key facts &amp; perspectives</strong></p><ul>' +
       keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul>';
   }
-  if (alsoMatches.length) {
-    const links = alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ');
-    right += `<p class="m"><strong>Related:</strong> ${links}</p>`;
-  }
+  const relatedHtml = alsoMatches.length
+    ? `<span class="m"><strong>Related:</strong> ${alsoMatches.map(m => `<a href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`).join(' · ')}</span>`
+    : `<span class="m">${esc(cat)} briefing</span>`;
+  right += `<div class="f j">${relatedHtml}<a class="bt" href="/p/${esc(p.slug)}">Full briefing &rarr;</a></div>`;
 
-  return `<article class="c" id="${esc(p.slug)}"><div class="r"><div>${left}</div>${right ? `<div class="d">${right}</div>` : ''}</div><a class="bt p" href="/p/${esc(p.slug)}">Full briefing &amp; sources</a></article>`;
+  return `<article class="c" id="${esc(p.slug)}"><div class="r"><div>${left}</div><div class="d">${right}</div></div></article>`;
 }
 
 function renderPostBody(post, livePosts, nowMs) {
+  const cat = post.category || 'News';
+  const catSlug = slugify(cat);
   const summary = post.summary || '';
   const whatHappened = post.what_happened || post.body || '';
   const whyTrending = post.why_trending || '';
   const keyFacts = parseJsonField(post.key_facts || post.bullets, []);
   const whatNext = post.what_to_know_next || '';
   const updates = parseJsonField(post.updates_json, []);
+  const latestUpdate = updates[updates.length - 1];
+  const earlierUpdates = updates.length > 1 ? updates.slice(0, -1) : [];
   const alsoSearched = parseJsonField(post.also_searched, []);
   const alsoMatches = findMatchingLiveLinks(post, livePosts);
 
-  let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${summary ? `<p class="sum">${esc(summary)}</p>` : ''}${post.sources ? `<p class="m"><strong>Sources:</strong> ${esc(post.sources)}</p>` : ''}</div></div>`;
-  if (whatHappened) h += '<h2>What Happened</h2>' + `<p>${esc(whatHappened)}</p>`;
-  if (whyTrending) h += `<h2>Why ${esc(post.topic || 'This')} Is Trending</h2><p>${esc(whyTrending)}</p>`;
-  if (keyFacts.length) h += '<h2>Key Facts</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul>';
-  if (whatNext) h += `<h2>What to Know Next</h2><p>${esc(whatNext)}</p>`;
-  for (const u of updates) h += `<p class="u"><strong>Update (${timeAgo(u.time, nowMs)}):</strong> ${esc(u.text)}</p>`;
+  let rightLead = summary ? `<p class="sum">${esc(summary)}</p>` : '';
+  if (latestUpdate) rightLead += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdate.text)}</p>`;
+  if (post.sources) rightLead += `<p class="m"><strong>Sources:</strong> ${esc(post.sources)}</p>`;
+  rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key facts</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">More ${esc(cat)}</a></div>`;
+
+  let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
+  if (whatHappened) h += '<section><h2>What Happened</h2>' + `<p>${esc(whatHappened)}</p></section>`;
+  if (whyTrending) h += `<section><h2>Why ${esc(post.topic || 'This')} Is Trending</h2><p>${esc(whyTrending)}</p></section>`;
+  if (keyFacts.length) h += '<section id="facts"><h2>Key Facts</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul></section>';
+  if (whatNext) h += `<section><h2>What to Know Next</h2><p>${esc(whatNext)}</p></section>`;
+  for (const u of earlierUpdates) h += `<p class="u"><strong>Update (${timeAgo(u.time, nowMs)}):</strong> ${esc(u.text)}</p>`;
 
   const matchedPhrases = new Set(alsoMatches.map(m => m.phrase.toLowerCase()));
   const searchSuggestions = alsoSearched.filter(p => p && !matchedPhrases.has(String(p).toLowerCase())).slice(0, 4);
 
   if (alsoMatches.length || searchSuggestions.length) {
-    h += '<div class="f" style="margin:10px 0"><span class="m">Explore:</span>';
+    h += '<div class="f" style="margin:8px 0"><span class="m">Explore:</span>';
     for (const m of alsoMatches) {
       h += `<a class="bt" href="/p/${esc(m.slug)}">${esc(m.phrase)}</a>`;
     }
@@ -274,7 +284,7 @@ function renderPostBody(post, livePosts, nowMs) {
     }
     h += '</div>';
   }
-  h += renderSourcesList(post, true);
+  h += `<section id="sources">${renderSourcesList(post, true)}</section>`;
   return h;
 }
 
@@ -328,10 +338,11 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
   let h = htmlHead(title, desc, canon, settings.geos, ldTag, 'website', `${siteUrl}/og.png`);
   h += siteHeader(settings.siteName, 'home') + '<main class="w">';
   if (pg.page > 1) h += renderBackBar([{ label: 'Home', href: '/' }], `Page ${pg.page}`, '/');
-  h += `<h1 class="f"><i></i>Top stories${pg.page > 1 ? ` · Page ${pg.page}` : ''}</h1>`;
+  h += '<div class="f j"><h1 class="f">' + LOGO_SVG + `<span>Top stories${pg.page > 1 ? ` · Page ${pg.page}` : ''}</span></h1>`;
   if (pg.totalItems) {
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} live briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
+  h += '</div>';
   for (let i = 0; i < pg.items.length; i++) {
     h += renderStoryCard(pg.items[i], posts, nowMs, true, i === 0);
   }
@@ -388,10 +399,11 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
     ? [{ label: 'Home', href: '/' }, { label: categoryName, href: `/c/${catSlug}` }]
     : [{ label: 'Home', href: '/' }];
   h += renderBackBar(crumbs, pg.page > 1 ? `Page ${pg.page}` : categoryName, pg.page > 1 ? `/c/${catSlug}` : '/');
-  h += `<h1 class="f"><i></i>${esc(categoryName)}${pg.page > 1 ? ` · Page ${pg.page}` : ''}</h1>`;
+  h += `<div class="f j"><h1 class="f">${LOGO_SVG}<span>${esc(categoryName)}${pg.page > 1 ? ` · Page ${pg.page}` : ''}</span></h1>`;
   if (pg.totalItems) {
     h += `<p class="m">Showing ${pg.start}&ndash;${pg.end} of ${pg.totalItems} ${esc(catLower)} briefings · Page ${pg.page} of ${pg.totalPages}</p>`;
   }
+  h += '</div>';
   for (let i = 0; i < pg.items.length; i++) {
     h += renderStoryCard(pg.items[i], posts, nowMs, false, i === 0);
   }
@@ -419,7 +431,7 @@ export function searchPage({ query = '', cat = '', page = 1, results = [], allLi
   let h = htmlHead(title, desc, `${siteUrl}/search`, settings.geos, '', 'website', `${siteUrl}/og.png`, true);
   h += siteHeader(settings.siteName, '', cleanQ) + '<main class="w">';
   h += renderBackBar([{ label: 'Home', href: '/' }], cleanQ ? `Search: ${cleanQ}` : 'Search', '/');
-  h += `<h1 class="f"><i></i>${cleanQ ? `Results for "${esc(cleanQ)}"` : 'Search live briefings'}</h1>`;
+  h += `<h1 class="f">${LOGO_SVG}<span>${cleanQ ? `Results for "${esc(cleanQ)}"` : 'Search live briefings'}</span></h1>`;
 
   // Category filter pills within search
   const activeCats = [...new Set(allLive.map(p => p.category || 'News'))];
@@ -533,12 +545,12 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   h += `</article>`;
 
   if (related.length) {
-    h += '<nav class="c" aria-label="Related briefings"><p class="m"><strong>More trending now</strong></p><ul>';
+    h += '<nav class="c" aria-label="Related briefings"><p class="m"><strong>More trending now</strong></p><div class="r g">';
     for (const r of related) {
       const rCat = r.category || 'News';
-      h += `<li><a class="k" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · <a href="/p/${esc(r.slug)}">${esc(r.title)}</a></li>`;
+      h += `<p><a class="k" href="/c/${esc(slugify(rCat))}">${esc(rCat)}</a> · <a href="/p/${esc(r.slug)}">${esc(r.title)}</a> <span class="m">· ${timeAgo(r.created_at, nowMs)}</span></p>`;
     }
-    h += '</ul></nav>';
+    h += '</div></nav>';
   }
   h += `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/c/${esc(catSlug)}">More ${esc(cat)}</a><a class="bt" href="/">Top stories</a></div></main>` + htmlFoot(settings.contactEmail);
   return h;
