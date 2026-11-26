@@ -465,6 +465,7 @@ export async function handleScheduled(env) {
             key_facts: post.key_facts,
             category: post.category,
             topic: item.title,
+            sources: sourcesCsv,
           });
           count++;
         }

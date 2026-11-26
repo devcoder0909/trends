@@ -6,7 +6,7 @@
  */
 
 import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
-import { formatSocialPost, formatFacebookPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
+import { formatSocialPost, formatFacebookPost, formatTelegramPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
 import { formatDisplayTopic, stripInlineSourceTags } from '../src/config.js';
 import { rankTopics, parseGoogleNewsRSS } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
@@ -378,6 +378,21 @@ async function run() {
       !fbFormatted.message.includes('[ESPN]') &&
       !fbFormatted.message.includes('[BBC Sport]');
 
+    const tgFormatted = formatTelegramPost({
+      slug: 'arsenal-vs-chelsea',
+      title: 'Arsenal vs Chelsea Match Result',
+      summary: 'Arsenal moved top with a 2-1 win [ESPN].',
+      key_facts: ['Bukayo Saka scored in minute 78 [BBC Sport].', 'Arsenal reached 34 points [ESPN].'],
+      category: 'Sports',
+      topic: 'arsenal vs chelsea',
+      sources: 'ESPN, BBC Sport',
+    }, 'https://trends.example.com');
+    const tgClean = tgFormatted.caption.includes('<b>[SPORTS] Arsenal vs Chelsea Match Result</b>') &&
+      tgFormatted.caption.includes('• Bukayo Saka scored') &&
+      !tgFormatted.caption.includes('[ESPN]') &&
+      tgFormatted.caption.length <= 1024 &&
+      tgFormatted.replyMarkup.inline_keyboard[0][0].url === 'https://trends.example.com/p/arsenal-vs-chelsea';
+
     const pubResults = await publishToSocial({
       FB_PAGE_ID: '1234567890',
       FB_PAGE_TOKEN: 'fb-tok',
@@ -404,8 +419,9 @@ async function run() {
     const allOk = pubResults.length === 7 && pubResults.every(r => r.ok);
     const hasFacet = socialRequests.some(r => r.url.includes('createRecord') && String(r.body).includes('app.bsky.richtext.facet#link'));
     const hasFbFeed = socialRequests.some(r => r.url.includes('graph.facebook.com/') && r.url.includes('/1234567890/feed'));
-    if (!allOk || !hasFacet || !hasFbFeed || !fbClean || !oauthSig.startsWith('OAuth ')) {
-      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}, hasFbFeed=${hasFbFeed}, fbClean=${fbClean}`);
+    const hasWebhookFbMsg = socialRequests.some(r => r.url.includes('hooks.example.com/social') && String(r.body).includes('facebookMessage'));
+    if (!allOk || !hasFacet || !hasFbFeed || !hasWebhookFbMsg || !fbClean || !tgClean || !oauthSig.startsWith('OAuth ')) {
+      console.error(`[FAIL] publishToSocial results=${JSON.stringify(pubResults)}, hasFacet=${hasFacet}, hasFbFeed=${hasFbFeed}, hasWebhookFbMsg=${hasWebhookFbMsg}, fbClean=${fbClean}, tgClean=${tgClean}`);
       failures++;
     } else {
       console.log('[PASS] Multi-platform zero-budget social publish (Facebook Page, Bluesky, Telegram, Mastodon, Discord, Webhook, X) verified');

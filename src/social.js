@@ -163,17 +163,52 @@ async function postToBluesky(env, item, budget) {
   if (!res.ok) throw new Error(`Bluesky post HTTP ${res.status}`);
 }
 
-async function postToTelegram(env, item, budget) {
+const escTg = s =>
+  String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Format rich, scannable Telegram Channel caption (<=1024 chars for sendPhoto)
+ * with category badge, clean summary, key bullet points, and clickable link.
+ */
+export function formatTelegramPost(post, siteUrl) {
+  const formatted = formatSocialPost(post, siteUrl, 295);
+  const catLabel = String(post.category || 'News').toUpperCase();
+  const title = stripInlineSourceTags(formatted.title, post.sources);
+  const summary = stripInlineSourceTags(formatted.summary, post.sources);
+
+  let rawFacts = post.key_facts;
+  if (typeof rawFacts === 'string') {
+    try { rawFacts = JSON.parse(rawFacts); } catch { rawFacts = []; }
+  }
+  const bullets = Array.isArray(rawFacts)
+    ? rawFacts.map(f => stripInlineSourceTags(f, post.sources)).filter(Boolean).slice(0, 2)
+    : [];
+
+  const parts = [`<b>[${escTg(catLabel)}] ${escTg(title)}</b>`];
+  if (summary) parts.push('', escTg(summary));
+  if (bullets.length) parts.push('', ...bullets.map(b => `• ${escTg(b)}`));
+  parts.push('', `${escTg(formatted.tags.join(' '))}`, `<a href="${escTg(formatted.url)}">Read full briefing &rarr;</a>`);
+
+  let caption = parts.join('\n');
+  if (caption.length > 1020) {
+    caption = `<b>[${escTg(catLabel)}] ${escTg(title)}</b>\n\n${escTg(summary.slice(0, 420))}\n\n${escTg(formatted.tags.join(' '))}\n<a href="${escTg(formatted.url)}">Read full briefing &rarr;</a>`.slice(0, 1020);
+  }
+  return {
+    caption,
+    url: formatted.url,
+    imageUrl: formatted.imageUrl,
+    replyMarkup: {
+      inline_keyboard: [[{ text: 'Read Full Briefing ->', url: formatted.url }]],
+    },
+  };
+}
+
+async function postToTelegram(env, item, post, siteUrl, budget) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHANNEL_ID) return;
   if (budget && budget.remaining() <= 1) return;
   if (budget) budget.spend(1);
 
-  const escTg = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const caption = `<b>${escTg(item.title)}</b>\n\n${escTg(item.summary)}\n\n${escTg(item.tags.join(' '))}\n<a href="${escTg(item.url)}">Read full briefing</a>`;
-  const replyMarkup = {
-    inline_keyboard: [[{ text: 'Read Full Briefing ->', url: item.url }]],
-  };
-
+  const tg = formatTelegramPost({ ...post, title: item.title, summary: item.summary, slug: item.slug }, siteUrl);
   const base = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}`;
   const res = await fetch(`${base}/sendPhoto`, {
     method: 'POST',
@@ -181,10 +216,10 @@ async function postToTelegram(env, item, budget) {
     signal: timeoutSig(7000),
     body: JSON.stringify({
       chat_id: env.TELEGRAM_CHANNEL_ID,
-      photo: item.imageUrl,
-      caption: caption.slice(0, 1024),
+      photo: tg.imageUrl,
+      caption: tg.caption,
       parse_mode: 'HTML',
-      reply_markup: replyMarkup,
+      reply_markup: tg.replyMarkup,
     }),
   });
   if (!res.ok && (!budget || budget.remaining() > 1)) {
@@ -195,9 +230,9 @@ async function postToTelegram(env, item, budget) {
       signal: timeoutSig(7000),
       body: JSON.stringify({
         chat_id: env.TELEGRAM_CHANNEL_ID,
-        text: caption,
+        text: tg.caption,
         parse_mode: 'HTML',
-        reply_markup: replyMarkup,
+        reply_markup: tg.replyMarkup,
       }),
     });
     if (!fallback.ok) throw new Error(`Telegram HTTP ${fallback.status}`);
@@ -246,11 +281,12 @@ async function postToDiscord(env, item, budget) {
   if (!res.ok) throw new Error(`Discord HTTP ${res.status}`);
 }
 
-async function postToWebhook(env, item, post, budget) {
+async function postToWebhook(env, item, post, siteUrl, budget) {
   if (!env.SOCIAL_WEBHOOK_URL) return;
   if (budget && budget.remaining() <= 1) return;
   if (budget) budget.spend(1);
 
+  const fbFormatted = formatFacebookPost(post, siteUrl);
   const headers = { 'Content-Type': 'application/json' };
   if (env.SOCIAL_WEBHOOK_SECRET) headers['X-Webhook-Secret'] = env.SOCIAL_WEBHOOK_SECRET;
   const res = await fetch(env.SOCIAL_WEBHOOK_URL, {
@@ -265,6 +301,8 @@ async function postToWebhook(env, item, post, budget) {
       category: post.category || 'News',
       topic: post.topic || '',
       hashtags: item.tags,
+      facebookMessage: fbFormatted.message,
+      xText: formatSocialPost({ slug: item.slug, ...item }, siteUrl, 275).text,
       publishedAt: new Date().toISOString(),
     }),
   });
@@ -407,10 +445,10 @@ export async function publishToSocial(env, posts, siteUrl, budget = null, { forc
     const tasks = [
       ['facebook', () => postToFacebook(env, post, siteUrl, budget)],
       ['bluesky', () => postToBluesky(env, item, budget)],
-      ['telegram', () => postToTelegram(env, item, budget)],
+      ['telegram', () => postToTelegram(env, item, post, siteUrl, budget)],
       ['mastodon', () => postToMastodon(env, item, budget)],
       ['discord', () => postToDiscord(env, item, budget)],
-      ['webhook', () => postToWebhook(env, item, post, budget)],
+      ['webhook', () => postToWebhook(env, item, post, siteUrl, budget)],
       ['x', () => postToX(env, item, budget)],
     ];
     const settled = await Promise.allSettled(tasks.map(([, fn]) => fn()));
