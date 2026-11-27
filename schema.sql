@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS topics (
 CREATE INDEX IF NOT EXISTS idx_topics_expires  ON topics(expires_at);
 CREATE INDEX IF NOT EXISTS idx_topics_status   ON topics(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_topics_live     ON topics(status, expires_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_topics_cat_live ON topics(status, category, expires_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_extended ON topics(extended, search_hits);
 
 -- Dedup table: remembers every processed/rejected topic for 7 days

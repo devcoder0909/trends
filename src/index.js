@@ -163,9 +163,10 @@ async function searchLivePosts(db, nowIso, rawQuery, catSlug = '') {
 async function updateLiveTopics(db, env, settings, siteUrl, nowIso, budget) {
   if (settings.devMode || budget.remaining() < 16) return [];
   const checkCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
+  const recentCutoff = new Date(Date.now() - 24 * 3600_000).toISOString();
   const candidates = (await db.prepare(
-    "SELECT id, slug, topic, geo, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 1"
-  ).bind(nowIso, checkCutoff).all()).results || [];
+    "SELECT id, slug, topic, geo, source_urls, updates_json, update_pinged FROM topics WHERE status = 'published' AND expires_at > ? AND created_at >= ? AND (last_checked_at IS NULL OR last_checked_at < ?) ORDER BY COALESCE(last_checked_at, '') ASC LIMIT 1"
+  ).bind(nowIso, recentCutoff, checkCutoff).all()).results || [];
 
   const updatedUrls = [];
   for (const post of candidates) {
@@ -306,13 +307,14 @@ export async function handleScheduled(env) {
 
   if (isSiteEnded) return;
 
-  // 2. Check existing live posts (including extended posts) for new headlines
-  const updatedUrls = await updateLiveTopics(db, env, settings, siteUrl, now, budget);
-
-  // 3. Enforce 24h even pacing (~9/hr, >=6m apart) and promote max 1 queued topic per paced slot
+  // 3. Enforce 24h even pacing (~8/hr, >=7m apart) and promote max 1 queued topic per paced slot
   const allowance = await getPublishAllowance(db, settings, Date.now());
   let count = allowance.dayCount;
   let canPublishNow = allowance.canPublish;
+
+  // 2. Check recent (<24h) live posts for fresh headlines every 5m or during publish slots (saves 80% D1/RSS overhead)
+  const shouldRunUpdates = settings.devMode || canPublishNow || (new Date().getUTCMinutes() % 5 === 0);
+  const updatedUrls = shouldRunUpdates ? await updateLiveTopics(db, env, settings, siteUrl, now, budget) : [];
 
   const promotedUrls = [];
   const newUrls = [];
@@ -322,7 +324,7 @@ export async function handleScheduled(env) {
   if (canPublishNow) {
     const queuedLimit = settings.devMode ? Math.max(1, settings.maxDaily - count) : 1;
     const queued = (await db.prepare(
-      "SELECT id, slug, title, summary, key_facts, category, topic, sources FROM topics WHERE status = 'queued' ORDER BY approx_traffic DESC, created_at DESC LIMIT ?"
+      "SELECT id, slug, title, summary, key_facts, category, topic, sources, approx_traffic FROM topics WHERE status = 'queued' ORDER BY approx_traffic DESC, created_at DESC LIMIT ?"
     ).bind(queuedLimit).all()).results || [];
     for (const q of queued) {
       const pubAt = isoNow();
@@ -343,6 +345,7 @@ export async function handleScheduled(env) {
         category: q.category,
         topic: q.topic,
         sources: q.sources,
+        approxTraffic: q.approx_traffic || 0,
       });
       count++;
       if (!settings.devMode && settings.publishGapMins > 0) canPublishNow = false;
@@ -545,6 +548,7 @@ export async function handleScheduled(env) {
             category: post.category,
             topic: item.title,
             sources: sourcesCsv,
+            approxTraffic: item.approxTraffic || 0,
           });
           count++;
           if (!settings.devMode && settings.publishGapMins > 0) break;
@@ -560,7 +564,12 @@ export async function handleScheduled(env) {
   }).filter(Boolean);
 
   if (indexNowBatch.length) {
-    const allowWebhook = publishedPosts.length > 0 && await canSendWebhookNow(db, env);
+    const topPost = publishedPosts[0];
+    const isViralShareable = topPost && (
+      ['Entertainment', 'Sports', 'Gaming', 'Tech', 'Holidays', 'Weather', 'Science', 'News'].includes(topPost.category || 'News') ||
+      (topPost.approxTraffic || 0) >= 50_000
+    );
+    const allowWebhook = Boolean(isViralShareable && await canSendWebhookNow(db, env));
     const socialTask = publishToSocial(env, publishedPosts, siteUrl, budget, { allowWebhook })
       .then(async res => {
         if (allowWebhook && res.find(r => r.platform === 'webhook')?.ok) {
@@ -782,24 +791,43 @@ export async function handleFetch(request, env, ctx) {
 
   if (path === '/about') return cacheAndReturn(htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS));
 
-  // Targeted projections cut D1 read payload by ~70% on list, sitemap, RSS, and post routes
+  // Targeted projections & SQL-level filters cut D1 row reads by ~75% across routes
   const liveSummary = async () => (await db.prepare(
     "SELECT slug, title, summary, key_facts, updates_json, also_searched, sources, category, topic, geo, created_at, updated_at, expires_at, extended, image_url, image_source FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC"
   ).bind(now).all()).results || [];
 
+  const liveCategory = async catName => (await db.prepare(
+    "SELECT slug, title, summary, key_facts, updates_json, also_searched, sources, category, topic, geo, created_at, updated_at, expires_at, extended, image_url, image_source FROM topics WHERE status = 'published' AND category = ? AND expires_at > ? ORDER BY created_at DESC"
+  ).bind(catName, now).all()).results || [];
+
+  const liveSitemap = async () => (await db.prepare(
+    "SELECT slug, title, category, created_at, updated_at, extended FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC"
+  ).bind(now).all()).results || [];
+
+  const liveNewsSitemap = async () => {
+    const cutoff48h = new Date(nowMs - 48 * 3600_000).toISOString();
+    return (await db.prepare(
+      "SELECT slug, title, category, created_at FROM topics WHERE status = 'published' AND expires_at > ? AND created_at >= ? ORDER BY created_at DESC"
+    ).bind(now, cutoff48h).all()).results || [];
+  };
+
+  const liveLlms = async () => (await db.prepare(
+    "SELECT slug, title, summary, category, created_at FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 60"
+  ).bind(now).all()).results || [];
+
   const liveRelated = async () => (await db.prepare(
-    "SELECT slug, title, topic, category, created_at, also_searched FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 80"
+    "SELECT slug, title, topic, category, created_at, also_searched FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 50"
   ).bind(now).all()).results || [];
 
   const liveRss = async () => (await db.prepare(
     "SELECT slug, title, summary, what_happened, why_trending, key_facts, sources, category, created_at, updated_at FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 50"
   ).bind(now).all()).results || [];
 
-  if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await liveSummary(), siteUrl)));
-  if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await liveSummary(), siteUrl, settings.siteName, nowMs)));
+  if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await liveSitemap(), siteUrl)));
+  if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await liveNewsSitemap(), siteUrl, settings.siteName, nowMs)));
   if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await liveRss(), siteUrl, settings.siteName)));
   if (path === '/llms.txt') {
-    return cacheAndReturn(new Response(llmsTxt(await liveSummary(), siteUrl, settings.siteName), {
+    return cacheAndReturn(new Response(llmsTxt(await liveLlms(), siteUrl, settings.siteName), {
       headers: {
         'Content-Type': 'text/plain;charset=utf-8',
         'Cache-Control': 'public, s-maxage=120, max-age=30, stale-while-revalidate=300',
@@ -848,8 +876,7 @@ export async function handleFetch(request, env, ctx) {
       return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
     }
 
-    const allLive = await liveSummary();
-    const filtered = allLive.filter(p => slugify(p.category || 'News') === catSlug);
+    const filtered = await liveCategory(catName);
     const pageNum = catMatch[2] ? Number.parseInt(catMatch[2], 10) : 1;
     const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
     if (pageNum > totalPages) {

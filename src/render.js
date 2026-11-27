@@ -31,7 +31,7 @@ export const slugify = s =>
     .slice(0, 80);
 
 // Inline CSS (< 1.5KB) — Modern dark SaaS editorial theme (#111 / #181a1f / #3c9 emerald / #eef)
-export const CSS = `*{margin:0;padding:0}body{font:14px/1.45 system-ui;background:#111}body,.b,.sum,.bt,input{color:#eef}.m,.t a,footer a{color:#89a}a,.b b,.t .on,.k,h2 a:hover{color:#3c9}h2 a{color:#eef}p,ul{color:#bcc}p,ul,h1,h2,img{margin:0 0 7px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px;margin-top:8px}ul{padding-left:16px}header{border-bottom:1px solid #234}.w{max-width:860px;margin:auto;padding:9px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:7px}.b{margin-right:auto}.qf{flex:1 1 15em;padding:2px 2px 2px 8px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto;scrollbar-width:none}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#3c9}.m{font-size:12px}.pg{justify-content:center}.bt{font:inherit;padding:4px 9px;background:#223;border-radius:6px}.bt,.c{border:1px solid #234}.bt.on{background:#2b8;color:#021;border:0}.c{background:#181a1f;padding:11px;margin:9px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #3c9;padding-left:9px}.u{border-color:#eb3}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:14px}.g{grid-template-columns:1fr 1fr}.d{border-left:1px solid #234;padding-left:13px;display:flex;flex-flow:column}.d .j{margin-top:auto}h1{font-size:22px}}`;
+export const CSS = `*{margin:0;padding:0}body{font:15px/1.55 system-ui;background:#111}body,.b,.sum,.bt,input{color:#eef}.m,.t a,footer a{color:#89a}a,.b b,.t .on,.k,h2 a:hover{color:#3c9}h2 a{color:#eef}p,ul{color:#bcc}p,ul,h1,h2,img{margin:0 0 7px}a{text-decoration:none}h1,h2,.k,.bt.on{font-weight:600}h1,.b{font-size:19px}h2{font-size:16px;margin-top:8px}ul{padding-left:16px}header{border-bottom:1px solid #234}.w{max-width:860px;margin:auto;padding:9px}.h{padding-bottom:0}.f,.t,.bt{display:flex;align-items:center}.f{flex-wrap:wrap;gap:7px}.b{margin-right:auto}.qf{flex:1 1 15em;padding:2px 2px 2px 8px}input{flex:1;width:0;border:0;background:0;font-size:16px;outline:0}.t{gap:12px;overflow:auto;scrollbar-width:none}.t a,.bt{white-space:nowrap}.t a{padding:7px 0;border-bottom:2px solid #0000}.qf:focus-within,.bt:hover,.t .on,.t a:hover{border-color:#3c9}.m{font-size:12px}.pg{justify-content:center}.bt{font:inherit;padding:4px 9px;background:#223;border-radius:6px}.bt,.c{border:1px solid #234}.bt.on{background:#2b8;color:#021;border:0}.c{background:#181a1f;padding:11px;margin:9px 0}.c,img{border-radius:9px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:cover;display:block}.sum,.u{border-left:2px solid #3c9;padding-left:9px}.u{border-color:#eb3}.j{justify-content:space-between}@media(min-width:640px){.qf{max-width:290px}.r{display:grid;grid-template-columns:5fr 7fr;gap:14px}.g{grid-template-columns:1fr 1fr}.d{border-left:1px solid #234;padding-left:13px;display:flex;flex-flow:column}.d .j{margin-top:auto}h1{font-size:24px}}`;
 
 export const BACK_SCRIPT = `document.querySelectorAll('[data-bk]').forEach(function(a){a.addEventListener('click',function(e){try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){e.preventDefault();history.back()}}catch(x){}})})`;
 export const BACK_SCRIPT_HASH = 'sha256-gYnBAx/IGgY222gaMwV06vj32azHtsaxP2c3Mm8K7EY=';
@@ -286,9 +286,10 @@ function renderPostBody(post, livePosts, nowMs) {
   if (post.sources) rightLead += `<p class="m"><strong>Sources:</strong> ${esc(post.sources)}</p>`;
   rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key facts</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a></div>`;
 
+  const parasHtml = txt => txt.split(/\r?\n{2,}/).filter(Boolean).map(p => `<p>${esc(p)}</p>`).join('');
   let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async" fetchpriority="high">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
-  if (whatHappened) h += `<section><h2>What Happened</h2><p>${esc(whatHappened)}</p></section>`;
-  if (whyTrending) h += `<section><h2>Why ${esc(topicTitle)} Is Trending</h2><p>${esc(whyTrending)}</p></section>`;
+  if (whatHappened) h += `<section><h2>What Happened</h2>${parasHtml(whatHappened)}</section>`;
+  if (whyTrending) h += `<section><h2>Why ${esc(topicTitle)} Is Trending</h2>${parasHtml(whyTrending)}</section>`;
   if (keyFacts.length) h += '<section id="facts"><h2>Key Facts &amp; Takeaways</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul></section>';
   if (whatNext) h += `<section><h2>What to Expect Next</h2><p>${esc(whatNext)}</p></section>`;
   for (const u of earlierUpdates) {
@@ -530,6 +531,10 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   const keywords = [post.topic, cat, ...parseJsonField(post.also_searched, [])].filter(Boolean).join(', ');
   const sourceUrls = parseJsonField(post.source_urls, []).map(s => s.url).filter(Boolean);
 
+  const readWords = [post.summary, post.what_happened || post.body, post.why_trending, post.what_to_know_next]
+    .join(' ').trim().split(/\s+/).filter(Boolean).length;
+  const readMins = Math.max(1, Math.round(readWords / 200));
+
   const newsLd = {
     '@context': 'https://schema.org',
     '@type': 'NewsArticle',
@@ -541,6 +546,8 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
       { '@type': 'ImageObject', url: ogImg, width: 1200, height: 630 },
       postImg,
     ],
+    thumbnailUrl: postImg,
+    wordCount: readWords,
     articleSection: cat,
     keywords,
     about: { '@type': 'Thing', name: post.topic || cat },
@@ -549,7 +556,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     isAccessibleForFree: true,
     isPartOf: { '@type': ['CreativeWork', 'Product'], name: settings.siteName, productID: 'CAowzZvEDA:openaccess' },
     speakable: { '@type': 'SpeakableSpecification', cssSelector: ['h1', '.sum'] },
-    mainEntityOfPage: canon,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': canon },
     author: { '@type': ['Organization', 'NewsMediaOrganization'], name: settings.siteName, url: siteUrl },
     publisher: {
       '@type': ['Organization', 'NewsMediaOrganization'],
@@ -600,9 +607,6 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     clampTitle(post.title, 36),
     `/c/${catSlug}`
   );
-  const readWords = [post.summary, post.what_happened || post.body, post.why_trending, post.what_to_know_next]
-    .join(' ').trim().split(/\s+/).filter(Boolean).length;
-  const readMins = Math.max(1, Math.round(readWords / 200));
   h += `<article class="c" id="${esc(post.slug)}">`;
   h += `<p class="m"><a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · Published <time datetime="${esc(post.created_at)}">${timeAgo(post.created_at, nowMs)}</time> · ${readMins} min read`;
   if (post.updated_at && post.updated_at !== post.created_at) {

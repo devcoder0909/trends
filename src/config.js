@@ -28,7 +28,11 @@ export const BANNED_PHRASES = [
   "you won't believe", 'you wont believe', 'shocking', 'mind-blowing',
   'mind blowing', 'jaw-dropping', 'in conclusion', 'as an ai',
   'ai-generated', 'language model', 'click here', 'subscribe now',
-  'across news news',
+  'across news news', 'across current news', 'drew widespread attention',
+  'climbed rapidly', 'closely monitoring the situation',
+  'amid growing scrutiny', 'sparking widespread discussion',
+  'evolving landscape', 'in a dramatic turn', 'sent shockwaves',
+  'significant milestone', 'delve',
 ];
 
 const BLOCKLIST_REGEXES = BLOCKLIST.map(term => {
@@ -51,7 +55,7 @@ export const CATEGORY_RULES = [
   ['Sports', /\b(nba|nfl|mlb|nhl|fifa|uefa|ncaa|premier league|champions league|europa league|conference league|world cup|olympics|playoffs|finals|match|stadium|goal|touchdown|quarterback|running back|wide receiver|fumble|fumbles|coach|tournament|championship|grand prix|ufc|tennis|cricket|golf|league|football|basketball|baseball|soccer|hockey|bears|lions|chiefs|eagles|cowboys|lakers|celtics|arsenal|chelsea|liverpool|real madrid|barcelona|dazn)\b/gi],
   ['Gaming', /\b(playstation|ps5|xbox|nintendo|switch|steam|video game|game release|dlc|esports|rpg|fps|minecraft|fortnite|gta|grand theft auto|rockstar|elden ring|zelda|pokemon|patch notes|60 fps)\b/gi],
   ['Tech', /\b(ai|artificial intelligence|apple|google|microsoft|meta|openai|nvidia|tesla|iphone|android|macbook|software|outage|(?:server|site|app|network|system)\s+down|chip|semiconductor|cybersecurity|ios|windows|pixel|chatgpt|gemini|youtube tv|youtube|tiktok|instagram|cloud|vibe coding|cyber|hack)\b/gi],
-  ['Entertainment', /\b(movie|film|box office|trailer|netflix|disney|hbo|max|prime video|paramount|cbs|nbc|abc|bbc|series|season|episode|album|song|concert|tour|singer|actor|actress|oscar|grammy|emmy|tv show|premiere|cast|sequel|directed|director|filming|sci-fi|documentary|comedy|comedian|hollywood|celebrity|chef|masterchef|kitchen|reality tv|full house|paw patrol)\b/gi],
+  ['Entertainment', /\b(movie|film|box office|trailer|netflix|disney|hbo|max|prime video|paramount|cbs|nbc|abc|bbc|hulu|apple tv|series|season|episode|finale|album|song|concert|tour|singer|rapper|musician|actor|actress|celebrity|influencer|youtuber|streamer|twitch|tiktok|oscar|grammy|emmy|golden globe|met gala|tv show|premiere|cast|casting|sequel|directed|director|filming|sci-fi|documentary|comedy|comedian|hollywood|bollywood|k-pop|bts|wedding|engaged|engagement|dating|breakup|split|divorce|feud|drama|viral|podcast|interview|late night|chef|masterchef|kitchen|reality tv|full house|paw patrol)\b/gi],
   ['Business', /\b(earnings|revenue|quarterly|profit|stock|stock market|shares|nasdaq|dow|nyse|wall street|ipo|merger|acquisition|ceo|chief executive|layoffs|fed|federal reserve|interest rate|inflation|gdp|sec|market cap|dividend|earnings beat|tariff|tariffs|trade|economy|bitcoin|crypto|retail|walmart|amazon|target|black friday)\b/gi],
   ['Science', /\b(nasa|spacex|space|mars|moon|planet|orbital|asteroid|eclipse|telescope|jwst|scientists|research|study|discovery|rocket|orbit|physics|archaeology|fossil|spacecraft|crater)\b/gi],
   ['Weather', /\b(hurricanes?|tornadoe?s?|storms?|blizzards?|floods?|flooding|rain(?:fall)?|heatwaves?|heat waves?|wildfires?|earthquakes?|tsunamis?|advisory|forecasts?|weather|snowstorms?|cyclones?|typhoons?|winds|landslides?|evacuations?)\b/gi],
@@ -110,11 +114,6 @@ export function formatDisplayTopic(raw) {
  * while preserving the dedicated Sources section untouched.
  */
 export function stripInlineSourceTags(text, sourcesInput = '') {
-  let out = String(text || '')
-    .replace(/\s*\[[^\]\r\n]{2,64}\](?:\s*([.!?,;:]))?/g, (_, p) => (p || ''))
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-
   const sourceList = (Array.isArray(sourcesInput)
     ? sourcesInput
     : String(sourcesInput || '').split(','))
@@ -122,23 +121,35 @@ export function stripInlineSourceTags(text, sourcesInput = '') {
     .filter(s => s.length >= 2)
     .sort((a, b) => b.length - a.length);
 
-  if (sourceList.length) {
-    const alt = sourceList.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-    out = out
-      .replace(new RegExp(`\\s*(?:\\((?:${alt})\\)|[—–|\\-]\\s*(?:${alt}))\\s*([.!?,;:])?`, 'gi'), (_, p) => (p || ''))
-      .replace(new RegExp(`(?:^|[.!?]\\s+)According to (?:${alt}),?\\s+`, 'gi'), m => (m.startsWith('.') || m.startsWith('!') || m.startsWith('?') ? `${m[0]} ` : ''))
-      .replace(new RegExp(`(?:^|[.!?]\\s+)Separate coverage from (?:${alt}|outlets) noted (?:that\\s+)?`, 'gi'), m => (m.startsWith('.') || m.startsWith('!') || m.startsWith('?') ? `${m[0]} ` : ''))
-      .replace(new RegExp(`\\s+following recent reports from (?:${alt})(?:\\s+and\\s+(?:${alt}|media sources))?`, 'gi'), ' following recent public developments');
-  }
+  const alt = sourceList.length
+    ? sourceList.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+    : '';
 
-  out = out
-    .replace(/\bacross news news\b/gi, 'across current news')
-    .replace(/\.{2,}/g, '.')
-    .replace(/\s+([.!?,;:])/g, '$1')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  if (out) out = out.charAt(0).toUpperCase() + out.slice(1);
-  return out;
+  return String(text || '')
+    .split(/\r?\n{2,}/)
+    .map(para => {
+      let out = para
+        .replace(/\s*\[[^\]\r\n]{2,64}\](?:\s*([.!?,;:]))?/g, (_, p) => (p || ''))
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (alt) {
+        out = out
+          .replace(new RegExp(`\\s*(?:\\((?:${alt})\\)|[—–|\\-]\\s*(?:${alt}))\\s*([.!?,;:])?`, 'gi'), (_, p) => (p || ''))
+          .replace(new RegExp(`(?:^|[.!?]\\s+)According to (?:${alt}),?\\s+`, 'gi'), m => (m.startsWith('.') || m.startsWith('!') || m.startsWith('?') ? `${m[0]} ` : ''))
+          .replace(new RegExp(`(?:^|[.!?]\\s+)Separate coverage from (?:${alt}|outlets) noted (?:that\\s+)?`, 'gi'), m => (m.startsWith('.') || m.startsWith('!') || m.startsWith('?') ? `${m[0]} ` : ''))
+          .replace(new RegExp(`\\s+following recent reports from (?:${alt})(?:\\s+and\\s+(?:${alt}|media sources))?`, 'gi'), ' following recent public developments');
+      }
+      out = out
+        .replace(/\bacross news news\b/gi, 'across current news')
+        .replace(/\.{2,}/g, '.')
+        .replace(/\s+([.!?,;:])/g, '$1')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (out) out = out.charAt(0).toUpperCase() + out.slice(1);
+      return out;
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 export function getSettings(env = {}) {

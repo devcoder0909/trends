@@ -272,9 +272,25 @@ export function mergeSources(trendsItems = [], googleNewsItems = []) {
   return { items: merged.slice(0, 12), distinctOutlets, sourceUrls };
 }
 
+const CATEGORY_TRAFFIC_WEIGHTS = {
+  Entertainment: 30_000,
+  Sports: 22_000,
+  Gaming: 20_000,
+  Tech: 16_000,
+  News: 8_000,
+  Holidays: 5_000,
+  Weather: 5_000,
+  Science: 4_000,
+  Business: -10_000,
+};
+
+const VIRAL_INTEREST_RE = /\b(viral|celebrity|dating|engaged|engagement|wedding|split|divorce|breakup|feud|drama|controversy|backlash|apology|interview|podcast|trailer|premiere|finale|cast|casting|actor|actress|singer|rapper|influencer|youtuber|streamer|net worth|contract|trade|record|reveal|spotted|reaction|fans react|reunion|box office|netflix|spotify|tiktok|rumor)\b/i;
+const BORING_CORPORATE_RE = /\b(weighted index|stock index|nifty|sensex|asx|ftse|nikkei|bond yield|basis point|treasury yield|quarterly filing|dividend|share price|shareholder|holiday hours|store hours|opening hours|bank holiday|wind project|battery project|project abandonment|tariff schedule|exchange rate|ppi|cpi)\b/i;
+const CONSUMER_BUSINESS_RE = /\b(black friday|cyber monday|deal|sale|discount|iphone|apple|tesla|amazon|netflix|bitcoin|crypto|ai|layoffs)\b/i;
+
 /**
  * Deduplicate across geos and rank candidate topics by approx_traffic (with US lead weight),
- * number of sources, and informational category intent.
+ * multi-outlet breadth, and high-CTR viral entertainment/sports/pop-culture priority.
  */
 export function rankTopics(candidates) {
   const bySlug = new Map();
@@ -305,11 +321,15 @@ export function rankTopics(candidates) {
   return [...bySlug.values()]
     .map(c => {
       const text = (c.newsItems || []).map(n => `${n.title} ${n.snippet}`).join(' ');
+      const combined = `${c.title} ${text}`;
       const category = classifyCategory(c.title, text);
       const outletCount = new Set((c.newsItems || []).map(n => n.source).filter(Boolean)).size;
       const usMultiplier = c.geo === 'US' ? 1.5 : 1.0;
       const traffic = Math.round((c.approxTraffic || 0) * usMultiplier);
-      const intentBonus = PREFERRED_CATEGORIES.has(category) ? 5000 : 0;
+      let intentBonus = CATEGORY_TRAFFIC_WEIGHTS[category] ?? 0;
+      if (category === 'Business' && CONSUMER_BUSINESS_RE.test(combined)) intentBonus = 12_000;
+      if (VIRAL_INTEREST_RE.test(combined)) intentBonus += 45_000;
+      if (BORING_CORPORATE_RE.test(combined) && (c.approxTraffic || 0) < 200_000) intentBonus -= 45_000;
       const score = traffic + outletCount * 10_000 + intentBonus;
       return { ...c, category, score };
     })

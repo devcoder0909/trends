@@ -259,8 +259,8 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
 
   const bodyText = [cleanSummary, cleanWhat, cleanWhy, ...normalizedFacts, cleanNext].join(' ');
   const totalWords = countWords(bodyText);
-  if (totalWords < minWords || totalWords > 440) {
-    return { ok: false, reason: `word count ${totalWords} out of range (${minWords}-440)` };
+  if (totalWords < minWords || totalWords > 520) {
+    return { ok: false, reason: `word count ${totalWords} out of range (${minWords}-520)` };
   }
 
   const fullText = `${title} ${bodyText}`;
@@ -344,28 +344,28 @@ export function buildWriterPrompt(topic, category, sources, feedback = '') {
     ? `\nFIX: ${feedback}\n`
     : '';
 
-  return `Neutral news editor writing a factual ${category} briefing on "${displayTopic}".
-ONLY use facts, names, dates, and numbers printed verbatim in SOURCES. Never invent years, parent companies, or expand acronyms.
+  return `Senior digital ${category} journalist writing a crisp, human-sounding AP/entertainment newsroom story about "${displayTopic}".
+ONLY use facts, names, dates, and numbers printed verbatim in SOURCES. Never invent years, parent companies, quotes, or unverified claims.
 
 SOURCES:
 ${formattedSources}
 ${feedbackBlock}
-RULES:
-1. Plain English (Grade 8 level). No clickbait, emojis, "breaking" (unless in SOURCES), "shocking", "in conclusion", "major developments", or "closely monitoring the situation".
-2. NEVER write [Source Name] brackets, parenthetical outlet citations, or "According to <Outlet>" anywhere inside title, summary, what_happened, why_trending, key_facts, or what_to_know_next — sources are displayed separately.
-3. Total 210-330 words across summary, what_happened, why_trending, key_facts, what_to_know_next (min 150, max 400).
-4. summary: ONE direct factual sentence (18-28 words) answering why ${displayTopic} is trending.
+STYLE & SEO RULES:
+1. Natural, readable human journalism (active voice, varied sentence rhythm, Grade 8 clarity). NEVER use clickbait, emojis, "breaking" (unless in SOURCES), "in conclusion", "drew widespread attention", "climbed rapidly", "closely monitoring the situation", or "readers are searching".
+2. NEVER include [Source Name], parenthetical outlet tags, or "According to <Outlet>" in title, summary, what_happened, why_trending, key_facts, or what_to_know_next — outlets appear separately in Sources.
+3. Total 240-360 words across all fields (min 190, max 460).
+4. Front-load "${displayTopic}" naturally in the headline and opening summary for Google News & Search ranking.
 
 JSON ONLY:
 {
-  "title": "<SEO search-intent headline <=58 chars leading with ${displayTopic} and specific news angle>",
+  "title": "<compelling active-voice news headline <=58 chars leading with ${displayTopic}>",
   "category": "${category}",
-  "summary": "<ONE sentence, 18-28 words, no source names>",
-  "what_happened": "<3-4 detailed sentences (70-110 words) covering who, what, when, where, and confirmed figures/events>",
-  "why_trending": "<2-3 sentences (45-70 words) explaining concrete public, industry, or viewer drivers>",
-  "key_facts": ["<concise distinct fact 1>", "<concise distinct fact 2>", "<concise distinct fact 3>", "<concise distinct fact 4>"],
-  "what_to_know_next": "<2 sentences (30-55 words) on upcoming dates, official schedule, or unconfirmed details>",
-  "also_searched": ["<related query 1>", "<related query 2>", "<related query 3>", "<related query 4>"]
+  "summary": "<ONE punchy standfirst sentence, 18-28 words, stating the exact news hook>",
+  "what_happened": "<TWO crisp paragraphs separated by \\n\\n (105-155 words total, 5-6 sentences) covering who, what, when, where, and confirmed details>",
+  "why_trending": "<2-3 engaging sentences (55-85 words) explaining why fans, audiences, or the public are reacting right now without mentioning search volume or trends>",
+  "key_facts": ["<distinct fact 1>", "<distinct fact 2>", "<distinct fact 3>", "<distinct fact 4>"],
+  "what_to_know_next": "<2 concrete sentences (35-55 words) on upcoming dates, next match/release/schedule, or open questions>",
+  "also_searched": ["<natural query 1>", "<natural query 2>", "<natural query 3>", "<natural query 4>"]
 }`;
 }
 
@@ -435,8 +435,8 @@ export async function callLLM(env, prompt, budget = null) {
         body: JSON.stringify({
           model,
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.2,
-          max_tokens: 760,
+          temperature: 0.3,
+          max_tokens: 900,
         }),
       });
       if (!res.ok) {
@@ -481,7 +481,7 @@ export async function callLLM(env, prompt, budget = null) {
             signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 760 },
+              generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 900 },
             }),
           }
         );
@@ -530,8 +530,8 @@ export async function callLLM(env, prompt, budget = null) {
       try {
         const res = await env.AI.run(model, {
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 460,
-          temperature: 0.2,
+          max_tokens: 760,
+          temperature: 0.3,
         });
         const text = extractAiText(res);
         if (text) {
@@ -653,9 +653,9 @@ export function mockGenerate(topic, category, sources) {
     if (title.length > 60) title = displayTopic.slice(0, 60).trim();
   }
 
-  const summaryRaw = `${displayTopic} drew attention across ${catArea} following recent public reports, with newsrooms summarizing the latest verified facts.`;
+  const summaryRaw = `${displayTopic} sparked fresh conversation across ${catArea} following recent public reports and verified updates.`;
   const trimmedSummary = countWords(summaryRaw) > 28
-    ? `${displayTopic} is gaining attention following new verified multi-outlet reports.`
+    ? `${displayTopic} drew fresh public attention following confirmed updates.`
     : summaryRaw;
 
   const snip1 = clean(primary.snippet) ? `${clean(primary.snippet)}.` : '';
@@ -663,16 +663,16 @@ export function mockGenerate(topic, category, sources) {
   const snip3 = clean(tertiary.snippet) && clean(tertiary.snippet) !== clean(secondary.snippet) ? `${clean(tertiary.snippet)}.` : '';
 
   const what_happened = [
-    `${displayTopic} became a focal point in ${catArea} after multiple public briefings highlighted the latest developments.`,
-    `${s1}.`,
-    snip1,
-    s2 !== s1 ? `Additional coverage reports that ${s2}.` : '',
-    snip2,
-  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    `${displayTopic} moved into the spotlight across ${catArea} following coordinated reports from major news outlets. ${s1}. ${snip1}`.replace(/\s+/g, ' ').trim(),
+    [
+      s2 !== s1 ? `Follow-up reporting detailed that ${s2}.` : `Journalists also confirmed new context surrounding ${displayTopic}.`,
+      snip2 || `Coverage highlights verified facts already available in public releases and official briefings.`,
+    ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
+  ].filter(Boolean).join('\n\n');
 
   const why_trending = [
-    `Public search volume for ${displayTopic} rose sharply as newsrooms published new reporting on ${s3 !== s1 ? s3.toLowerCase() : displayTopic}.`,
-    snip3 || (s4 !== s3 ? `Readers also looked into details surrounding ${s4}.` : `Interest reflects widespread demand for verified context on the story.`),
+    `Public interest around ${displayTopic} accelerated as audiences weighed in on ${s3 !== s1 ? s3.toLowerCase() : displayTopic}.`,
+    snip3 || (s4 !== s3 ? `Additional commentary focused on ${s4}.` : `Ongoing discussion reflects strong public curiosity around verified developments and next steps.`),
   ].join(' ').replace(/\s+/g, ' ').trim();
 
   const bulletsRaw = [
@@ -760,12 +760,13 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
       }
       if (/HTTP \d+|unavailable|subrequests|timeout/i.test(err.message)) {
         infraFailures++;
-        if (infraFailures >= 2) break;
+        break;
       }
       continue;
     }
 
-    const check = validateDraft(draft, topic, sources, existingTitles, { minWords: 120 });
+    const reqMinWords = !useMock && typeof options.customGenerator !== 'function' ? 185 : 120;
+    const check = validateDraft(draft, topic, sources, existingTitles, { minWords: reqMinWords });
     if (!check.ok) {
       lastReason = check.reason;
       feedback = check.reason;
