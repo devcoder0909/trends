@@ -660,26 +660,58 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
 }
 
 export function aboutPage(settings, siteUrl) {
+  const title = clampTitle(`About ${settings.siteName} — Editorial Policy & News Standards`);
+  const desc = clampMeta(`Learn how ${settings.siteName} verifies breaking news feeds across multiple independent outlets, enforces factual editorial standards, and publishes corrections.`);
+  const aboutLd = `<script type="application/ld+json">${JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'AboutPage',
+      name: title,
+      url: `${siteUrl}/about`,
+      description: desc,
+      mainEntity: {
+        '@type': ['Organization', 'NewsMediaOrganization'],
+        '@id': `${siteUrl}/#publisher`,
+        name: settings.siteName,
+        url: `${siteUrl}/`,
+        sameAs: ['https://t.me/trendingrightnow_news'],
+        publishingPrinciples: `${siteUrl}/about`,
+        contactPoint: { '@type': 'ContactPoint', contactType: 'editorial', email: settings.contactEmail },
+        logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.png`, width: 256, height: 256 },
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: `${siteUrl}/` },
+        { '@type': 'ListItem', position: 2, name: 'About', item: `${siteUrl}/about` },
+      ],
+    },
+  ]).replace(/<\//g, '<\\/')}</script>`;
   return htmlHead(
-    `About — ${settings.siteName}`,
-    clampMeta(`Learn how ${settings.siteName} verifies real-time public news feeds, grounds facts across multiple outlets, and maintains transparent editorial standards.`),
+    title,
+    desc,
     `${siteUrl}/about`,
     settings.geos,
-    '',
+    aboutLd,
     'website',
     `${siteUrl}/og.png`
   ) +
     siteHeader(settings.siteName, '') +
     `<main class="w">` +
     renderBackBar([{ label: 'Home', href: '/' }], 'About', '/') +
-    `<article class="c"><h1>About ${esc(settings.siteName)}</h1>` +
-    `<p>${esc(settings.siteName)} publishes concise, fact-checked editorial briefings on trending news, sports, business, technology, and science topics from public news feeds.</p>` +
-    `<ul><li>Every claim, figure, and date is verified against at least two independent news outlets before publishing.</li>` +
-    `<li>Briefings receive live chronological updates whenever new primary reporting emerges.</li>` +
-    `<li>Sensitive tragedies, unverified rumors, spam streams, and single-outlet items are automatically excluded.</li>` +
-    `<li>Zero invasive tracking, zero behavioral ads, and fast mobile-first delivery.</li>` +
-    `<li>Follow live breaking updates on <a href="https://t.me/trendingrightnow_news" rel="noopener">Telegram</a> or browse via <a href="/rss.xml">RSS</a>.</li>` +
-    `<li>Editorial corrections &amp; inquiries: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul></article>` +
+    `<article class="c"><h1>About ${esc(settings.siteName)} — Editorial Policy &amp; News Standards</h1>` +
+    `<p>${esc(settings.siteName)} is an independent digital news desk delivering clear, source-verified briefings on fast-moving stories across entertainment, sports, gaming, technology, science, and world news.</p>` +
+    `<section><h2>Verification &amp; Multi-Outlet Sourcing</h2>` +
+    `<p>Every briefing published on this platform goes through automated multi-source corroboration and factual grounding checks. Before an article appears on ${esc(settings.siteName)}, key entities, dates, statistics, and event timelines must appear across at least two independent public news outlets.</p>` +
+    `<ul><li>Every claim, figure, and calendar reference is checked against listed primary news publications before release.</li>` +
+    `<li>Developing stories receive chronological timestamped updates whenever credible new details emerge from partner feeds.</li>` +
+    `<li>Unverified rumors, single-source claims, spam links, and graphic violence are automatically excluded from publication.</li></ul></section>` +
+    `<section><h2>Editorial Independence, Privacy &amp; Corrections</h2>` +
+    `<p>Our articles prioritize factual clarity, direct answers, and scannable summaries without intrusive popups or behavioral ad trackers. We never collect IP addresses or personal reader profiles.</p>` +
+    `<ul><li>Follow breaking updates on <a href="https://t.me/trendingrightnow_news" rel="noopener">Telegram</a> or subscribe directly via our <a href="/rss.xml">RSS feed</a> and <a href="/news-sitemap.xml">Google News sitemap</a>.</li>` +
+    `<li>Report factual corrections or editorial inquiries directly to <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a>.</li></ul></section></article>` +
     `<div class="f">${NAV_CATEGORIES.map(c => `<a class="bt" href="/c/${slugify(c)}">${esc(c)}</a>`).join('')}<a class="bt on" href="/">Top stories</a></div></main>` +
     htmlFoot(settings.contactEmail);
 }
