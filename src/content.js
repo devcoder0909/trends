@@ -344,27 +344,27 @@ export function buildWriterPrompt(topic, category, sources, feedback = '') {
     ? `\nFIX: ${feedback}\n`
     : '';
 
-  return `Senior digital ${category} journalist writing a crisp, human-sounding AP/entertainment newsroom story about "${displayTopic}".
-ONLY use facts, names, dates, and numbers printed verbatim in SOURCES. Never invent years, parent companies, quotes, or unverified claims.
+  return `Senior human beat reporter writing a tight, original ${category} article on "${displayTopic}" for Google News readers.
+ONLY cite names, dates, numbers, and events explicitly present in SOURCES. Never invent facts or quotes.
 
 SOURCES:
 ${formattedSources}
 ${feedbackBlock}
-STYLE & SEO RULES:
-1. Natural, readable human journalism (active voice, varied sentence rhythm, Grade 8 clarity). NEVER use clickbait, emojis, "breaking" (unless in SOURCES), "in conclusion", "drew widespread attention", "climbed rapidly", "closely monitoring the situation", or "readers are searching".
-2. NEVER include [Source Name], parenthetical outlet tags, or "According to <Outlet>" in title, summary, what_happened, why_trending, key_facts, or what_to_know_next — outlets appear separately in Sources.
-3. Total 240-360 words across all fields (min 190, max 460).
-4. Front-load "${displayTopic}" naturally in the headline and opening summary for Google News & Search ranking.
+ORIGINAL HUMAN NEWSROOM STYLE:
+1. Sound like a real journalist (AP / Variety / BBC / The Athletic) — clear active verbs, concrete subjects, varied sentence lengths. NEVER sound templated or AI-written.
+2. Lead immediately with WHO did WHAT, WHEN, and WHERE. Never write "X is trending", "X moved into the spotlight", "sparked fresh conversation", "audiences weighed in", "search interest", "widely discussed", "evolving landscape", or "breaking" (unless in SOURCES).
+3. Zero bracket tags [Outlet] or "According to <Outlet>" anywhere in JSON text fields — sources link below the story.
+4. Target 220-340 words across all JSON text fields (shorter is fine only if SOURCES are brief; never pad with empty filler).
 
 JSON ONLY:
 {
-  "title": "<compelling active-voice news headline <=58 chars leading with ${displayTopic}>",
+  "title": "<punchy active-voice news headline <=58 chars with ${displayTopic}>",
   "category": "${category}",
-  "summary": "<ONE punchy standfirst sentence, 18-28 words, stating the exact news hook>",
-  "what_happened": "<TWO crisp paragraphs separated by \\n\\n (105-155 words total, 5-6 sentences) covering who, what, when, where, and confirmed details>",
-  "why_trending": "<2-3 engaging sentences (55-85 words) explaining why fans, audiences, or the public are reacting right now without mentioning search volume or trends>",
-  "key_facts": ["<distinct fact 1>", "<distinct fact 2>", "<distinct fact 3>", "<distinct fact 4>"],
-  "what_to_know_next": "<2 concrete sentences (35-55 words) on upcoming dates, next match/release/schedule, or open questions>",
+  "summary": "<ONE sharp journalistic dek sentence (16-26 words) stating the concrete news event>",
+  "what_happened": "<TWO crisp paragraphs separated by \\n\\n (95-150 words) telling the actual story, people involved, dates, and confirmed facts>",
+  "why_trending": "<2-3 human sentences (45-80 words) explaining why fans, viewers, or the public care right now using concrete story stakes>",
+  "key_facts": ["<specific verifiable fact 1>", "<specific verifiable fact 2>", "<specific verifiable fact 3>", "<specific verifiable fact 4>"],
+  "what_to_know_next": "<1-2 direct sentences (25-50 words) on upcoming dates, schedule, release, or open questions>",
   "also_searched": ["<natural query 1>", "<natural query 2>", "<natural query 3>", "<natural query 4>"]
 }`;
 }
@@ -653,26 +653,26 @@ export function mockGenerate(topic, category, sources) {
     if (title.length > 60) title = displayTopic.slice(0, 60).trim();
   }
 
-  const summaryRaw = `${displayTopic} sparked fresh conversation across ${catArea} following recent public reports and verified updates.`;
-  const trimmedSummary = countWords(summaryRaw) > 28
-    ? `${displayTopic} drew fresh public attention following confirmed updates.`
-    : summaryRaw;
-
   const snip1 = clean(primary.snippet) ? `${clean(primary.snippet)}.` : '';
   const snip2 = clean(secondary.snippet) && clean(secondary.snippet) !== clean(primary.snippet) ? `${clean(secondary.snippet)}.` : '';
   const snip3 = clean(tertiary.snippet) && clean(tertiary.snippet) !== clean(secondary.snippet) ? `${clean(tertiary.snippet)}.` : '';
 
+  const summaryRaw = `${s1}${snip1 ? ` — ${snip1.replace(/[.!?]+$/, '')}` : ''}.`.replace(/\s+/g, ' ').trim();
+  const trimmedSummary = countWords(summaryRaw) >= 8 && countWords(summaryRaw) <= 28
+    ? summaryRaw
+    : `${displayTopic} is back in ${catArea} headlines following verified new updates.`;
+
   const what_happened = [
-    `${displayTopic} moved into the spotlight across ${catArea} following coordinated reports from major news outlets. ${s1}. ${snip1}`.replace(/\s+/g, ' ').trim(),
+    `${displayTopic} drew fresh reporting across ${catArea} as new details emerged from public updates. ${s1}. ${snip1}`.replace(/\s+/g, ' ').trim(),
     [
-      s2 !== s1 ? `Follow-up reporting detailed that ${s2}.` : `Journalists also confirmed new context surrounding ${displayTopic}.`,
-      snip2 || `Coverage highlights verified facts already available in public releases and official briefings.`,
+      s2 !== s1 ? `Additional coverage reported that ${s2}.` : `Details across newsroom reports point to clear developments around ${displayTopic}.`,
+      snip2 || `Independent outlets verified the same underlying sequence of events from official releases and confirmed public statements.`,
     ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim(),
   ].filter(Boolean).join('\n\n');
 
   const why_trending = [
-    `Public interest around ${displayTopic} accelerated as audiences weighed in on ${s3 !== s1 ? s3.toLowerCase() : displayTopic}.`,
-    snip3 || (s4 !== s3 ? `Additional commentary focused on ${s4}.` : `Ongoing discussion reflects strong public curiosity around verified developments and next steps.`),
+    `Interest centered on ${displayTopic} after ${s3 !== s1 ? s3 : s1} gained momentum across major publications and fan discussions.`,
+    snip3 || (s4 !== s3 ? `Readers also looked closely at ${s4}.` : `Observers are watching closely to see how public announcements and verified events unfold next.`),
   ].join(' ').replace(/\s+/g, ' ').trim();
 
   const bulletsRaw = [
@@ -682,9 +682,9 @@ export function mockGenerate(topic, category, sources) {
     s.length >= 4 && s4 !== s3 ? `${s4}.` : '',
   ].filter(Boolean);
   const bullets = [...new Set(bulletsRaw)].slice(0, 5);
-  while (bullets.length < 3) bullets.push(`${displayTopic} coverage remains active across ${catArea}.`);
+  while (bullets.length < 3) bullets.push(`Further verified updates on ${displayTopic} continue to emerge.`);
 
-  const what_to_know_next = `Further official statements and scheduled updates on ${displayTopic} are awaited as public information develops. Readers should verify timing changes directly against primary announcements.`;
+  const what_to_know_next = `Further official statements and scheduled updates on ${displayTopic} are expected as fresh information develops across public channels. Readers should check directly against confirmed primary releases for timing adjustments.`;
 
   const also_searched = [
     `${displayTopic} update`,
@@ -765,7 +765,10 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
       continue;
     }
 
-    const reqMinWords = !useMock && typeof options.customGenerator !== 'function' ? 185 : 120;
+    const srcWords = countWords(buildSourceCorpus(topic, sources));
+    const reqMinWords = !useMock && typeof options.customGenerator !== 'function'
+      ? Math.min(175, Math.max(125, Math.round(srcWords * 1.15)))
+      : 120;
     const check = validateDraft(draft, topic, sources, existingTitles, { minWords: reqMinWords });
     if (!check.ok) {
       lastReason = check.reason;

@@ -32,7 +32,9 @@ export const BANNED_PHRASES = [
   'climbed rapidly', 'closely monitoring the situation',
   'amid growing scrutiny', 'sparking widespread discussion',
   'evolving landscape', 'in a dramatic turn', 'sent shockwaves',
-  'significant milestone', 'delve',
+  'significant milestone', 'delve', 'moved into the spotlight',
+  'sparked fresh conversation', 'audiences weighed in', 'public curiosity',
+  'following coordinated reports', 'remains active across',
 ];
 
 const BLOCKLIST_REGEXES = BLOCKLIST.map(term => {
