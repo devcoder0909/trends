@@ -23,7 +23,10 @@ jobs:
           now = datetime.datetime.now(datetime.timezone.utc)
           cutoff = now - datetime.timedelta(hours=2)
 
-          urls = [f'https://{HOST}/']
+          urls = [
+              f'https://{HOST}/',
+              *(f'https://{HOST}/c/{c}' for c in ('news', 'sports', 'entertainment', 'tech', 'business', 'gaming', 'science', 'weather', 'holidays')),
+          ]
           for block in re.findall(r'<url>([\s\S]*?)</url>', xml):
               loc_m = re.search(r'<loc>([^<]+)</loc>', block)
               dt_m = re.search(r'<news:publication_date>([^<]+)</news:publication_date>', block)

@@ -7,8 +7,8 @@
 
 import { generateAndValidatePost, validateDraft, callLLM, __resetAiCooldowns } from '../src/content.js';
 import { formatSocialPost, formatFacebookPost, formatTelegramPost, publishToSocial, signOAuth1Header, __resetSocialState } from '../src/social.js';
-import { formatDisplayTopic, stripInlineSourceTags } from '../src/config.js';
-import { rankTopics, parseGoogleNewsRSS } from '../src/rss.js';
+import { classifyCategory, formatDisplayTopic, stripInlineSourceTags } from '../src/config.js';
+import { rankTopics, parseGoogleNewsRSS, extractOgMetaImage, extractHighResSourceImage, fetchWikiEntityImage } from '../src/rss.js';
 import { buildMetaDescription, slugify, CSS } from '../src/render.js';
 import { isNearDuplicateTopic } from '../src/index.js';
 
@@ -482,6 +482,57 @@ async function run() {
     failures++;
   } else {
     console.log('[PASS] Accented SEO slugs/hashtags & [FREE!!] RSS stream-spam filtering verified');
+  }
+
+  // Verify improved category routing & late-head/Wikimedia image extraction
+  const catPutin = classifyCategory('putin news', 'Zelensky questioned Trump comments in a BBC interview about Putin and Russia.');
+  const catPga = classifyCategory('pga tour', 'PGA Tour shifts focus to Farmers Insurance Skins Game.');
+  const catMarc = classifyCategory('marc marquez', 'MotoGP champion Marc Marquez confirmed his retirement after the finale.');
+  const relOg = extractOgMetaImage('<meta property="og:image" content="//cdn.example.com/photo/hero.jpg">', 'https://news.example.com/story');
+  let lateHeadOk = false;
+  let wikiStrictOk = false;
+  const origImgFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async url => {
+      const u = String(url);
+      if (u === 'https://pub.example.com/story') {
+        return new Response(`<html><head>${' '.repeat(70000)}<meta property="og:image" content="/assets/lead-photo.jpg"></head></html>`, {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        });
+      }
+      if (u === 'https://pub.example.com/assets/lead-photo.jpg') {
+        return new Response(new Uint8Array(15000), {
+          status: 200,
+          headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '15000' },
+        });
+      }
+      if (u.includes('en.wikipedia.org')) {
+        return new Response(JSON.stringify({
+          query: {
+            pages: {
+              '1': { index: 0, title: 'Marc Márquez', thumbnail: { source: 'https://upload.wikimedia.org/m.jpg', width: 1200, height: 800 } },
+              '2': { index: 1, title: 'Unrelated Federal Breach', thumbnail: { source: 'https://upload.wikimedia.org/bad.jpg', width: 1200, height: 800 } },
+            },
+          },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('', { status: 404 });
+    };
+    const hiResLate = await extractHighResSourceImage([{ name: 'Pub', url: 'https://pub.example.com/story' }], 'story');
+    const wikiHit = await fetchWikiEntityImage('marc marquez');
+    const wikiMiss = await fetchWikiEntityImage('us air force cloud one breach');
+    lateHeadOk = hiResLate?.imageUrl === 'https://pub.example.com/assets/lead-photo.jpg' && hiResLate?.imageSource === 'Pub';
+    wikiStrictOk = wikiHit?.imageUrl === 'https://upload.wikimedia.org/m.jpg' && wikiMiss === null;
+  } finally {
+    globalThis.fetch = origImgFetch;
+  }
+  if (catPutin !== 'News' || catPga !== 'Sports' || catMarc !== 'Sports' ||
+      relOg !== 'https://cdn.example.com/photo/hero.jpg' || !lateHeadOk || !wikiStrictOk) {
+    console.error(`[FAIL] Taxonomy/Image upgrades failed: putin=${catPutin}, pga=${catPga}, marc=${catMarc}, relOg=${relOg}, late=${lateHeadOk}, wiki=${wikiStrictOk}`);
+    failures++;
+  } else {
+    console.log('[PASS] Political News taxonomy, Sports taxonomy & 256KB/Wiki high-res photo extraction verified');
   }
 
   console.log(`\nTotal failures: ${failures}`);

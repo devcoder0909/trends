@@ -36,7 +36,7 @@ const createBudget = (max = 42) => {
   };
 };
 
-const EDGE_CACHE_VER = '?__v=6';
+const EDGE_CACHE_VER = '?__v=7';
 
 async function purgeEdgePaths(siteHost, paths) {
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
@@ -174,8 +174,8 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso, budget) {
     const fresh = await fetchGoogleNews(post.topic, post.geo || 'US');
     let existingUrls = [];
     let existingUpdates = [];
-    try { existingUrls = JSON.parse(post.source_urls || '[]'); } catch {}
-    try { existingUpdates = JSON.parse(post.updates_json || '[]'); } catch {}
+    try { existingUrls = JSON.parse(post.source_urls || '[]'); } catch { }
+    try { existingUpdates = JSON.parse(post.updates_json || '[]'); } catch { }
 
     const res = buildUpdateFromFreshSources(existingUrls, fresh, nowIso);
     if (res.updated) {
@@ -198,6 +198,52 @@ async function updateLiveTopics(db, env, settings, siteUrl, nowIso, budget) {
   }
 
   return updatedUrls;
+}
+
+/**
+ * Upgrade 1 live post per idle cron tick from empty/thumbnail images to a verified high-res
+ * publisher or Wikimedia Commons photograph, tracking checked slugs in social_state without schema changes.
+ */
+async function enrichWeakPostImages(db, settings, siteUrl, nowIso, budget) {
+  if (settings.devMode || budget.remaining() < 24) return { updatedUrls: [], purgePaths: [] };
+  let checked = [];
+  try {
+    const row = await db.prepare("SELECT v FROM social_state WHERE k = 'img_checked_slugs'").first();
+    checked = JSON.parse(row?.v || '[]');
+    if (!Array.isArray(checked)) checked = [];
+  } catch { checked = []; }
+
+  const weak = (await db.prepare(
+    "SELECT id, slug, topic, category, source_urls, image_url, image_source FROM topics WHERE status = 'published' AND expires_at > ? AND (image_url = '' OR image_url LIKE '%encrypted-tbn%' OR image_url LIKE '%trendingrightnow.online%') ORDER BY created_at DESC LIMIT 80"
+  ).bind(nowIso).all()).results || [];
+  if (!weak.length) return { updatedUrls: [], purgePaths: [] };
+
+  const checkedSet = new Set(checked);
+  let target = weak.find(p => !checkedSet.has(p.slug));
+  if (!target) {
+    checked = [];
+    target = weak[0];
+  }
+
+  let srcArr = [];
+  try { srcArr = JSON.parse(target.source_urls || '[]') || []; } catch { }
+  budget.spend(8);
+  const hiRes = await extractHighResSourceImage(srcArr, target.topic);
+
+  const nextChecked = [...checked.filter(s => s !== target.slug), target.slug].slice(-180);
+  await db.prepare('INSERT INTO social_state (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v')
+    .bind('img_checked_slugs', JSON.stringify(nextChecked)).run().catch(() => { });
+
+  if (hiRes?.imageUrl && hiRes.imageUrl !== target.image_url) {
+    await db.prepare('UPDATE topics SET image_url = ?, image_source = ?, updated_at = ? WHERE id = ?')
+      .bind(hiRes.imageUrl, hiRes.imageSource || target.image_source || '', nowIso, target.id).run();
+    const catPath = `/c/${slugify(target.category || 'News')}`;
+    return {
+      updatedUrls: [`${siteUrl}/p/${target.slug}`],
+      purgePaths: [`/p/${target.slug}`, `/i/${target.slug}.jpg`, '/', catPath, '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', `${catPath}/rss.xml`],
+    };
+  }
+  return { updatedUrls: [], purgePaths: [] };
 }
 
 /**
@@ -315,6 +361,9 @@ export async function handleScheduled(env) {
   // 2. Check recent (<24h) live posts for fresh headlines every 5m or during publish slots (saves 80% D1/RSS overhead)
   const shouldRunUpdates = settings.devMode || canPublishNow || (new Date().getUTCMinutes() % 5 === 0);
   const updatedUrls = shouldRunUpdates ? await updateLiveTopics(db, env, settings, siteUrl, now, budget) : [];
+  const imgEnriched = (!settings.devMode && !canPublishNow)
+    ? await enrichWeakPostImages(db, settings, siteUrl, now, budget)
+    : { updatedUrls: [], purgePaths: [] };
 
   const promotedUrls = [];
   const newUrls = [];
@@ -336,7 +385,7 @@ export async function handleScheduled(env) {
       touchedCats.add(catPath);
       promotedUrls.push(`${siteUrl}/p/${q.slug}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
       let facts = [];
-      try { facts = JSON.parse(q.key_facts || '[]') || []; } catch {}
+      try { facts = JSON.parse(q.key_facts || '[]') || []; } catch { }
       publishedPosts.push({
         slug: q.slug,
         title: q.title,
@@ -394,7 +443,7 @@ export async function handleScheduled(env) {
     for (const p of pendingRows) {
       if (!rawCandidates.some(c => slugify(c.title) === p.topic_hash)) {
         let trendsItems = [];
-        try { trendsItems = JSON.parse(p.source_json || '[]'); } catch {}
+        try { trendsItems = JSON.parse(p.source_json || '[]'); } catch { }
         rawCandidates.push({ title: p.topic, approxTraffic: p.approx_traffic, newsItems: trendsItems, geo: p.geo });
       }
     }
@@ -503,9 +552,9 @@ export async function handleScheduled(env) {
       const sourcesCsv = merged.distinctOutlets.join(', ');
       let resolvedImgUrl = item.imageUrl || '';
       let resolvedImgSource = item.imageSource || '';
-      if (!settings.devMode && budget.remaining() >= 6 && merged.sourceUrls.length) {
+      if (!settings.devMode && budget.remaining() >= 6 && (merged.sourceUrls.length || item.title)) {
         budget.spend(2);
-        const hiRes = await extractHighResSourceImage(merged.sourceUrls);
+        const hiRes = await extractHighResSourceImage(merged.sourceUrls, item.title);
         if (hiRes?.imageUrl) {
           resolvedImgUrl = hiRes.imageUrl;
           resolvedImgSource = hiRes.imageSource || resolvedImgSource;
@@ -539,6 +588,7 @@ export async function handleScheduled(env) {
         if (status === 'published') {
           const catPath = `/c/${slugify(post.category || 'News')}`;
           touchedCats.add(catPath);
+          touchedCats.add(`${catPath}/rss.xml`);
           newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
           publishedPosts.push({
             slug: hash,
@@ -560,7 +610,7 @@ export async function handleScheduled(env) {
   }
 
   const postPings = [...new Set([...newUrls, ...promotedUrls].filter(u => u.includes('/p/')))];
-  const indexNowBatch = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls])];
+  const indexNowBatch = [...new Set([...newUrls, ...updatedUrls, ...imgEnriched.updatedUrls, ...promotedUrls])];
   const updatedPaths = updatedUrls.map(u => {
     try { return new URL(u).pathname; } catch { return ''; }
   }).filter(Boolean);
@@ -584,7 +634,7 @@ export async function handleScheduled(env) {
       pingWebSub(env, siteUrl),
       pingGoogleIndexing(env, postPings, 'URL_UPDATED'),
       socialTask,
-      purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths]),
+      purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths, ...imgEnriched.purgePaths]),
     ]);
     try {
       const keyName = postPings.length ? 'indexing_telemetry' : 'update_indexing_telemetry';
@@ -598,7 +648,7 @@ export async function handleScheduled(env) {
         urls: postPings.slice(0, 5),
       }).slice(0, 1000);
       await db.prepare('INSERT INTO social_state (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').bind(keyName, val).run();
-    } catch {}
+    } catch { }
   }
 }
 
@@ -695,7 +745,7 @@ export async function handleFetch(request, env, ctx) {
     const cached = await edgeCache.match(cacheKey);
     if (cached) {
       if ((path === '/' || path.startsWith('/page/') || path.startsWith('/c/') || path.startsWith('/p/')) &&
-          shouldCountSearchHit(request) && ctx?.waitUntil) {
+        shouldCountSearchHit(request) && ctx?.waitUntil) {
         const slug = path.startsWith('/p/') ? path.slice(3).replace(/\/+$/, '') : null;
         ctx.waitUntil(recordSearchHit(db, slug, now));
       }
@@ -721,20 +771,20 @@ export async function handleFetch(request, env, ctx) {
   if (imgProxyMatch) {
     const slug = imgProxyMatch[1].toLowerCase();
     const post = await db.prepare(
-      "SELECT id, title, category, image_url, image_source, source_urls FROM topics WHERE slug = ? AND status = 'published' AND expires_at > ?"
+      "SELECT id, title, topic, category, image_url, image_source, source_urls FROM topics WHERE slug = ? AND status = 'published' AND expires_at > ?"
     ).bind(slug, now).first();
     if (!post) return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
 
     const candidateUrls = [];
-    if (!settings.devMode && post.source_urls && (!post.image_url || /encrypted-tbn\d*\.gstatic\.com/i.test(post.image_url))) {
+    if (!settings.devMode && (post.source_urls || post.topic) && (!post.image_url || /encrypted-tbn\d*\.gstatic\.com|trendingrightnow\.online/i.test(post.image_url))) {
       let srcArr = [];
-      try { srcArr = JSON.parse(post.source_urls) || []; } catch {}
-      const hiRes = await extractHighResSourceImage(srcArr);
+      try { srcArr = JSON.parse(post.source_urls || '[]') || []; } catch { }
+      const hiRes = await extractHighResSourceImage(srcArr, post.topic);
       if (hiRes?.imageUrl) {
         candidateUrls.push(hiRes.imageUrl);
         if (hiRes.imageUrl !== post.image_url) {
           const upd = db.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE id = ?')
-            .bind(hiRes.imageUrl, hiRes.imageSource || post.image_source || '', post.id).run().catch(() => {});
+            .bind(hiRes.imageUrl, hiRes.imageSource || post.image_source || '', post.id).run().catch(() => { });
           if (ctx?.waitUntil) ctx.waitUntil(upd); else await upd;
         }
       }
@@ -828,9 +878,22 @@ export async function handleFetch(request, env, ctx) {
     "SELECT slug, title, summary, what_happened, why_trending, key_facts, sources, category, created_at, updated_at FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 50"
   ).bind(now).all()).results || [];
 
+  const liveCategoryRss = async catName => (await db.prepare(
+    "SELECT slug, title, summary, what_happened, why_trending, key_facts, sources, category, created_at, updated_at FROM topics WHERE status = 'published' AND category = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 50"
+  ).bind(catName, now).all()).results || [];
+
   if (path === '/sitemap.xml') return cacheAndReturn(xmlRes(sitemapXml(await liveSitemap(), siteUrl)));
   if (path === '/news-sitemap.xml') return cacheAndReturn(xmlRes(newsSitemapXml(await liveNewsSitemap(), siteUrl, settings.siteName, nowMs)));
   if (path === '/rss.xml') return cacheAndReturn(xmlRes(rssFeed(await liveRss(), siteUrl, settings.siteName)));
+  const catRssMatch = path.match(/^\/c\/([a-z0-9-]+)\/rss\.xml$/i);
+  if (catRssMatch) {
+    const catSlug = catRssMatch[1].toLowerCase();
+    const knownNames = [...new Set([...PREFERRED_CATEGORIES, 'News'])];
+    const catName = knownNames.find(c => slugify(c) === catSlug);
+    if (!catName) return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
+    const rows = await liveCategoryRss(catName);
+    return cacheAndReturn(xmlRes(rssFeed(rows, siteUrl, settings.siteName, `${settings.siteName} — ${catName}`, `/c/${catSlug}/rss.xml`)));
+  }
   if (path === '/llms.txt') {
     return cacheAndReturn(new Response(llmsTxt(await liveLlms(), siteUrl, settings.siteName), {
       headers: {

@@ -122,7 +122,7 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
   const imgDims = /\/og(?:\/|\.png)/i.test(imgUrl)
     ? '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
     : '';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}">${imgDims}<meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:locale" content="en_US"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:alt" content="${esc(title)}">${imgDims}<meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><meta name="twitter:image:alt" content="${esc(title)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
 const SEARCH_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
@@ -265,16 +265,17 @@ function renderStoryCard(p, livePosts, nowMs, showCategory = true, isFirstImg = 
   return `<article class="c" id="${esc(p.slug)}"><div class="r"><div>${left}</div><div class="d">${right}</div></div></article>`;
 }
 
-function linkProseEntities(text, currentSlug, livePosts = []) {
+function linkProseEntities(text, currentSlug, livePosts = [], usedSlugs = new Set(), maxNew = 2) {
   const raw = String(text || '');
-  if (!raw || !livePosts?.length) return esc(raw);
+  if (!raw || !livePosts?.length || maxNew <= 0) return esc(raw);
   const targets = livePosts
-    .filter(p => p && p.slug && p.slug !== currentSlug && String(p.topic || '').trim().length >= 5)
-    .slice(0, 35);
+    .filter(p => p && p.slug && p.slug !== currentSlug && !usedSlugs.has(p.slug) && String(p.topic || '').trim().length >= 5)
+    .slice(0, 120)
+    .sort((a, b) => String(b.topic || '').trim().length - String(a.topic || '').trim().length);
   let out = raw;
   const tokens = [];
   for (const t of targets) {
-    if (tokens.length >= 2) break;
+    if (tokens.length >= maxNew) break;
     const phrase = String(t.topic).trim();
     if (!/^[a-z0-9\s'-]+$/i.test(phrase)) continue;
     const escapedRe = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -282,6 +283,7 @@ function linkProseEntities(text, currentSlug, livePosts = []) {
     const m = out.match(re);
     if (m && !out.slice(0, m.index).includes('\u0001')) {
       const idx = tokens.length;
+      usedSlugs.add(t.slug);
       tokens.push({ slug: t.slug, text: m[2] });
       out = out.slice(0, m.index) + m[1] + `\u0001${idx}\u0002` + out.slice(m.index + m[0].length);
     }
@@ -310,18 +312,19 @@ function renderPostBody(post, livePosts, nowMs) {
   const earlierUpdates = updates.length > 1 ? updates.slice(0, -1) : [];
   const alsoSearched = parseJsonField(post.also_searched, []);
   const alsoMatches = findMatchingLiveLinks(post, livePosts);
+  const linkedSlugs = new Set([post.slug, ...alsoMatches.map(m => m.slug)]);
 
   let rightLead = summary ? `<p class="sum">${esc(summary)}</p>` : '';
   if (latestUpdateText) rightLead += `<p class="u"><strong>Update (${timeAgo(latestUpdate.time, nowMs)}):</strong> ${esc(latestUpdateText)}</p>`;
   if (post.sources) rightLead += `<p class="m"><strong>Sources:</strong> ${esc(post.sources)}</p>`;
   rightLead += `<div class="f" style="margin-top:6px"><a class="bt" href="#facts">Key takeaways</a><a class="bt" href="#sources">Sources</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a></div>`;
 
-  const parasHtml = txt => txt.split(/\r?\n{2,}/).filter(Boolean).map(p => `<p>${linkProseEntities(p, post.slug, livePosts)}</p>`).join('');
+  const parasHtml = (txt, perSec = 2) => txt.split(/\r?\n{2,}/).filter(Boolean).map(p => `<p>${linkProseEntities(p, post.slug, livePosts, linkedSlugs, perSec)}</p>`).join('');
   let h = `<div class="r"><figure><img src="/i/${esc(post.slug)}.jpg" alt="${esc(post.title)}" width="320" height="180" decoding="async" fetchpriority="high">${post.image_source ? `<figcaption class="m">Image: ${esc(post.image_source)}</figcaption>` : ''}</figure><div class="d">${rightLead}</div></div>`;
-  if (whatHappened) h += `<section><h2>Full Report</h2>${parasHtml(whatHappened)}</section>`;
-  if (whyTrending) h += `<section><h2>Why ${esc(topicTitle)} Is Trending</h2>${parasHtml(whyTrending)}</section>`;
+  if (whatHappened) h += `<section><h2>Full Report</h2>${parasHtml(whatHappened, 2)}</section>`;
+  if (whyTrending) h += `<section><h2>Why ${esc(topicTitle)} Is Trending</h2>${parasHtml(whyTrending, 2)}</section>`;
   if (keyFacts.length) h += '<section id="facts"><h2>Key Takeaways</h2><ul>' + keyFacts.map(f => `<li>${esc(f)}</li>`).join('') + '</ul></section>';
-  if (whatNext) h += `<section><h2>What Happens Next</h2><p>${esc(whatNext)}</p></section>`;
+  if (whatNext) h += `<section><h2>What Happens Next</h2><p>${linkProseEntities(whatNext, post.slug, livePosts, linkedSlugs, 1)}</p></section>`;
   for (const u of earlierUpdates) {
     const cleanU = stripInlineSourceTags(u.text, post.sources);
     if (cleanU) h += `<p class="u"><strong>Update (${timeAgo(u.time, nowMs)}):</strong> ${esc(cleanU)}</p>`;
@@ -443,6 +446,7 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
       url: canon,
       description: desc,
       inLanguage: 'en',
+      publisher: { '@id': `${siteUrl}/#publisher` },
     },
     { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: breadcrumbItems },
     {
@@ -459,7 +463,8 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
 
   const catPrev = pg.page > 1 ? `<link rel="prev" href="${pg.page === 2 ? `${siteUrl}/c/${catSlug}` : `${siteUrl}/c/${catSlug}/page/${pg.page - 1}`}">` : '';
   const catNext = pg.page < pg.totalPages ? `<link rel="next" href="${siteUrl}/c/${catSlug}/page/${pg.page + 1}">` : '';
-  let h = htmlHead(title, desc, canon, settings.geos, `${catPrev}${catNext}<script type="application/ld+json">${ld}</script>`, 'website', `${siteUrl}/og.png`);
+  const catRss = `<link rel="alternate" type="application/rss+xml" title="${esc(categoryName)} RSS" href="/c/${esc(catSlug)}/rss.xml">`;
+  let h = htmlHead(title, desc, canon, settings.geos, `${catPrev}${catNext}${catRss}<script type="application/ld+json">${ld}</script>`, 'website', `${siteUrl}/og.png`);
   h += siteHeader(settings.siteName, catSlug) + '<main class="w">';
   const crumbs = pg.page > 1
     ? [{ label: 'Home', href: '/' }, { label: categoryName, href: `/c/${catSlug}` }]
@@ -577,7 +582,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     articleSection: cat,
     keywords,
     about: { '@type': 'Thing', name: post.topic || cat },
-    ...(sourceUrls.length ? { citation: sourceUrls } : {}),
+    ...(sourceUrls.length ? { citation: sourceUrls, isBasedOn: sourceUrls } : {}),
     inLanguage: 'en-US',
     isAccessibleForFree: true,
     publishingPrinciples: `${siteUrl}/about`,

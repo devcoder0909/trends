@@ -133,26 +133,77 @@ export function parseGoogleNewsRSS(xml, limit = 8) {
 
 const ENGLISH_NEWS_GEOS = new Set(['US', 'GB', 'CA', 'AU', 'IN', 'IE', 'NZ', 'SG', 'ZA']);
 
-const NON_PHOTO_IMG_RE = /\b(logo|icon|favicon|avatar|badge|placeholder|default[-_]?(?:og|image)|1x1|pixel|spacer|sprite|branding)\b|\.svg(?:\?|$)/i;
+const NON_PHOTO_IMG_RE = /\b(logo|icon|favicon|avatar|badge|placeholder|default[-_]?(?:og|image)|1x1|pixel|spacer|sprite|branding)\b|\.(?:svg|ico|gif)(?:\?|$)/i;
 
-function extractOgMetaImage(html) {
+export function extractOgMetaImage(html, pageUrl = '') {
   const m =
-    html.match(/<meta[^>]+(?:property=["']og:image(?::secure_url)?["']|name=["']twitter:image(?::src)?["'])[^>]+content=["'](https?:\/\/[^"']+)["']/i) ||
-    html.match(/<meta[^>]+content=["'](https?:\/\/[^"']+)["'][^>]+(?:property=["']og:image(?::secure_url)?["']|name=["']twitter:image(?::src)?["'])/i);
+    html.match(/<meta[^>]+(?:property=["']og:image(?::secure_url)?["']|name=["']twitter:image(?::src)?["'])[^>]+content=["']([^"']+)["']/i) ||
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property=["']og:image(?::secure_url)?["']|name=["']twitter:image(?::src)?["'])/i) ||
+    html.match(/<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i) ||
+    html.match(/"image"\s*:\s*(?:\{\s*[^}]*"url"\s*:\s*"([^"]+)"|\[\s*"([^"]+)"|"([^"]+)")/i);
   if (!m) return '';
-  const url = decodeEntities(m[1]).trim();
-  if (!/^https:\/\//i.test(url) || NON_PHOTO_IMG_RE.test(url)) return '';
-  return url;
+  let raw = decodeEntities(m[1] || m[2] || m[3] || '').trim();
+  if (!raw) return '';
+  try {
+    if (pageUrl) raw = new URL(raw, pageUrl).toString();
+  } catch { return ''; }
+  raw = raw.replace(/^http:\/\//i, 'https://');
+  if (!/^https:\/\//i.test(raw) || NON_PHOTO_IMG_RE.test(raw)) return '';
+  return raw;
+}
+
+const normEntityTokens = s => String(s || '')
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\([^)]*\)/g, ' ')
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .split(/\s+/)
+  .filter(w => w.length >= 2 && !['the', 'news', 'today', 'update', 'updates', 'live'].includes(w));
+
+/**
+ * Fallback to exact-entity Wikimedia Commons photo (>= 600px JPEG/PNG/WEBP)
+ * when publisher pages return 403/bot-challenges or only opaque redirect links exist.
+ */
+export async function fetchWikiEntityImage(topic) {
+  const topicWords = normEntityTokens(topic);
+  if (!topicWords.length || topicWords.length > 5) return null;
+  try {
+    const api = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(topic)}&gsrlimit=2&prop=pageimages&piprop=thumbnail|original&pithumbsize=1200&format=json&origin=*`;
+    const res = await fetch(api, {
+      headers: { 'User-Agent': 'TrendingNowBot/1.0 (+https://trendingrightnow.online/about)' },
+      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined,
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pages = Object.values(data?.query?.pages || {}).sort((a, b) => (a.index || 9) - (b.index || 9));
+    for (const page of pages) {
+      const titleWords = normEntityTokens(page.title);
+      if (!titleWords.length) continue;
+      const overlap = topicWords.filter(w => titleWords.includes(w)).length;
+      const ratio = overlap / Math.max(topicWords.length, titleWords.length);
+      if (overlap < topicWords.length || ratio < 0.7) continue;
+      const thumb = page.thumbnail;
+      const orig = page.original;
+      const picked = (thumb?.source && (thumb.width || 0) >= 600) ? thumb : ((orig?.source && (orig.width || 0) >= 600) ? orig : null);
+      if (!picked?.source) continue;
+      const cleanUrl = picked.source.replace(/^http:\/\//i, 'https://');
+      if (!/^https:\/\//i.test(cleanUrl) || NON_PHOTO_IMG_RE.test(cleanUrl)) continue;
+      if (!/\.(?:jpe?g|png|webp)(?:\?|$)/i.test(cleanUrl)) continue;
+      return { imageUrl: cleanUrl, imageSource: 'Wikimedia Commons' };
+    }
+  } catch { /* ignore Wiki API timeouts */ }
+  return null;
 }
 
 /**
- * Resolve a real high-resolution newsroom photograph (>= 12 KB, >= 600px typical og:image)
- * directly from the publisher article URLs when available.
+ * Resolve a real high-resolution photograph (>= 12 KB) directly from publisher article URLs
+ * (supporting relative/late head meta tags) or exact-match Wikimedia Commons failsafe.
  */
-export async function extractHighResSourceImage(sourceUrls = []) {
+export async function extractHighResSourceImage(sourceUrls = [], topic = '') {
   const candidates = (Array.isArray(sourceUrls) ? sourceUrls : [])
     .filter(s => s && s.url && /^https?:\/\//i.test(s.url) && !/news\.google\.com\/rss\/articles\//i.test(s.url))
-    .slice(0, 3);
+    .slice(0, 6);
 
   for (const src of candidates) {
     try {
@@ -166,32 +217,35 @@ export async function extractHighResSourceImage(sourceUrls = []) {
       if (!res.ok) continue;
       const reader = res.body?.getReader?.();
       let html = '';
+      let imgUrl = '';
       if (reader) {
         const dec = new TextDecoder();
-        while (html.length < 49152) {
+        while (html.length < 262144) {
           const { value, done } = await reader.read();
           if (done) break;
           html += dec.decode(value, { stream: true });
-          if (html.includes('</head>')) break;
+          if (html.length >= 256) imgUrl = extractOgMetaImage(html, res.url || src.url);
+          if (imgUrl || html.includes('</head>')) break;
         }
         reader.cancel().catch(() => {});
       } else {
-        html = (await res.text()).slice(0, 49152);
+        html = (await res.text()).slice(0, 262144);
+        imgUrl = extractOgMetaImage(html, res.url || src.url);
       }
 
-      const imgUrl = extractOgMetaImage(html);
+      if (!imgUrl) imgUrl = extractOgMetaImage(html, res.url || src.url);
       if (!imgUrl) continue;
 
       const imgRes = await fetch(imgUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
-        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(3500) : undefined,
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined,
       }).catch(() => null);
 
       if (imgRes && imgRes.ok) {
         const ct = imgRes.headers.get('content-type') || '';
         const lenHeader = Number(imgRes.headers.get('content-length') || 0);
         let sizeOk = lenHeader >= 12000;
-        if (!lenHeader && ct.startsWith('image/')) {
+        if (!lenHeader && ct.startsWith('image/') && !ct.includes('svg')) {
           const ir = imgRes.body?.getReader?.();
           let got = 0;
           if (ir) {
@@ -208,13 +262,13 @@ export async function extractHighResSourceImage(sourceUrls = []) {
         } else {
           imgRes.body?.cancel?.().catch(() => {});
         }
-        if (ct.startsWith('image/') && sizeOk) {
+        if (ct.startsWith('image/') && !ct.includes('svg') && sizeOk) {
           return { imageUrl: imgUrl, imageSource: src.name || '' };
         }
       }
     } catch { /* try next publisher */ }
   }
-  return null;
+  return topic ? await fetchWikiEntityImage(topic) : null;
 }
 
 /**

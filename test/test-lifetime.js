@@ -415,8 +415,29 @@ async function run() {
     pg1SiloHtml.includes('<link rel="next" href="https://trends.example.com/page/2">') &&
     pg1SiloHtml.includes('fetchpriority="high"') &&
     pg2SiloHtml.includes('<link rel="prev" href="https://trends.example.com/">') &&
-    techHubHtml.includes('Live tech coverage hub tracking verified updates'),
+    techHubHtml.includes('Live tech coverage hub tracking verified updates') &&
+    techHubHtml.includes('/c/tech/rss.xml') &&
+    cleanPostHtml.includes('og:image:alt'),
     'verified'
+  );
+
+  // Case 9b: Per-category RSS feed (/c/:cat/rss.xml) + isBasedOn JSON-LD
+  uiDb.sqlite.prepare("UPDATE topics SET source_urls = ? WHERE slug = 'topic-15'").run(
+    JSON.stringify([{ name: 'BBC', url: 'https://example.com/bbc', title: 'Story' }])
+  );
+  const sheinSrcHtml = await (await handleFetch(new Request('https://trends.example.com/p/topic-15'), uiEnv, ctx)).text();
+  const catRssRes = await handleFetch(new Request('https://trends.example.com/c/tech/rss.xml'), uiEnv, ctx);
+  const catRssXml = await catRssRes.text();
+  record(
+    'Category RSS (/c/tech/rss.xml) & NewsArticle isBasedOn JSON-LD',
+    catRssRes.status === 200 &&
+    (catRssRes.headers.get('content-type') || '').includes('xml') &&
+    catRssXml.includes('<title>Trending Now — Tech</title>') &&
+    catRssXml.includes('/c/tech/rss.xml') &&
+    catRssXml.includes('/p/topic-12') &&
+    !catRssXml.includes('/p/topic-15') &&
+    sheinSrcHtml.includes('"isBasedOn":["https://example.com/bbc"]'),
+    `status=${catRssRes.status}`
   );
 
   // Case 10: Webhook free-tier pacing (allows first post, blocks within 90m gap, allows after 90m)

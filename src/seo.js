@@ -119,8 +119,8 @@ export function llmsTxt(posts, siteUrl, siteName = 'Trending Now') {
   return lines.join('\n');
 }
 
-export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
-  let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>${esc(siteName)}</title><link>${siteUrl}</link><atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/><atom:link rel="self" type="application/rss+xml" href="${siteUrl}/rss.xml"/><description>Live factual trending topic summaries verified across multiple public news sources</description><language>en</language>`;
+export function rssFeed(posts, siteUrl, siteName = 'Trending Now', feedTitle = siteName, selfPath = '/rss.xml') {
+  let x = `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>${esc(feedTitle)}</title><link>${siteUrl}</link><atom:link rel="hub" href="https://pubsubhubbub.appspot.com/"/><atom:link rel="self" type="application/rss+xml" href="${siteUrl}${esc(selfPath)}"/><description>Live factual trending topic summaries verified across multiple public news sources</description><language>en</language>`;
   for (const p of posts) {
     const pub = new Date(p.updated_at || p.created_at).toUTCString();
     const desc = stripInlineSourceTags(p.summary || p.body || '', p.sources);
