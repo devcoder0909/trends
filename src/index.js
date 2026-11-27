@@ -11,7 +11,7 @@
  */
 
 import { getSettings, isSensitive, normalizeHost, PREFERRED_CATEGORIES } from './config.js';
-import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics } from './rss.js';
+import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics, extractHighResSourceImage } from './rss.js';
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
 import {
@@ -36,11 +36,13 @@ const createBudget = (max = 42) => {
   };
 };
 
+const EDGE_CACHE_VER = '?__v=2';
+
 async function purgeEdgePaths(siteHost, paths) {
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
   if (!edgeCache || !siteHost || !paths.length) return;
   await Promise.allSettled(
-    [...new Set(paths)].map(p => edgeCache.delete(new Request(`https://${siteHost}${p}`, { method: 'GET' })))
+    [...new Set(paths)].map(p => edgeCache.delete(new Request(`https://${siteHost}${p}${EDGE_CACHE_VER}`, { method: 'GET' })))
   );
 }
 
@@ -267,11 +269,8 @@ export async function handleScheduled(env) {
   const { extendedSlugs, deletedSlugs } = await processExpirationsAndExtensions(db, now, settings);
   if (extendedSlugs.length) {
     const extUrls = extendedSlugs.map(s => `${siteUrl}/p/${s}`);
-    budget.spend(Math.min(10, extUrls.length) + 2);
-    await Promise.allSettled([
-      pingIndexNow(env, extUrls),
-      pingGoogleIndexing(env, extUrls, 'URL_UPDATED'),
-    ]);
+    budget.spend(1);
+    await pingIndexNow(env, extUrls);
   }
   if (deletedSlugs.length) {
     const delUrls = deletedSlugs.map(s => `${siteUrl}/p/${s}`);
@@ -499,6 +498,16 @@ export async function handleScheduled(env) {
       const expires = new Date(Date.now() + settings.baseTtlHours * 3600_000).toISOString();
       const status = count >= settings.maxDaily ? 'queued' : 'published';
       const sourcesCsv = merged.distinctOutlets.join(', ');
+      let resolvedImgUrl = item.imageUrl || '';
+      let resolvedImgSource = item.imageSource || '';
+      if (!settings.devMode && budget.remaining() >= 6 && merged.sourceUrls.length) {
+        budget.spend(2);
+        const hiRes = await extractHighResSourceImage(merged.sourceUrls);
+        if (hiRes?.imageUrl) {
+          resolvedImgUrl = hiRes.imageUrl;
+          resolvedImgSource = hiRes.imageSource || resolvedImgSource;
+        }
+      }
 
       try {
         await db.batch([
@@ -513,7 +522,7 @@ export async function handleScheduled(env) {
             post.why_trending, JSON.stringify(post.key_facts), post.what_to_know_next,
             JSON.stringify(post.also_searched), JSON.stringify(post.key_facts),
             sourcesCsv, JSON.stringify(merged.sourceUrls),
-            item.imageUrl || '', item.imageSource || '', post.category,
+            resolvedImgUrl, resolvedImgSource, post.category,
             item.title, item.geo, status, item.approxTraffic || 0, created, created, expires
           ),
           db.prepare('INSERT OR IGNORE INTO seen_topics (topic_hash, slug, seen_at) VALUES (?, ?, ?)')
@@ -544,7 +553,7 @@ export async function handleScheduled(env) {
     }
   }
 
-  const postPings = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls].filter(u => u.includes('/p/')))];
+  const postPings = [...new Set([...newUrls, ...promotedUrls].filter(u => u.includes('/p/')))];
   const indexNowBatch = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls])];
   const updatedPaths = updatedUrls.map(u => {
     try { return new URL(u).pathname; } catch { return ''; }
@@ -666,7 +675,7 @@ export async function handleFetch(request, env, ctx) {
     (path.startsWith('/c/') && !url.searchParams.has('page')) ||
     path.startsWith('/p/')
   );
-  const cacheKey = isCacheableGet ? new Request(`https://${url.host}${path}`, { method: 'GET' }) : null;
+  const cacheKey = isCacheableGet ? new Request(`https://${url.host}${path}${EDGE_CACHE_VER}`, { method: 'GET' }) : null;
 
   if (edgeCache && cacheKey) {
     const cached = await edgeCache.match(cacheKey);
@@ -698,13 +707,29 @@ export async function handleFetch(request, env, ctx) {
   if (imgProxyMatch) {
     const slug = imgProxyMatch[1].toLowerCase();
     const post = await db.prepare(
-      "SELECT title, category, image_url FROM topics WHERE slug = ? AND status = 'published' AND expires_at > ?"
+      "SELECT id, title, category, image_url, image_source, source_urls FROM topics WHERE slug = ? AND status = 'published' AND expires_at > ?"
     ).bind(slug, now).first();
     if (!post) return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
 
-    if (post.image_url) {
+    const candidateUrls = [];
+    if (!settings.devMode && post.source_urls && (!post.image_url || /encrypted-tbn\d*\.gstatic\.com/i.test(post.image_url))) {
+      let srcArr = [];
+      try { srcArr = JSON.parse(post.source_urls) || []; } catch {}
+      const hiRes = await extractHighResSourceImage(srcArr);
+      if (hiRes?.imageUrl) {
+        candidateUrls.push(hiRes.imageUrl);
+        if (hiRes.imageUrl !== post.image_url) {
+          const upd = db.prepare('UPDATE topics SET image_url = ?, image_source = ? WHERE id = ?')
+            .bind(hiRes.imageUrl, hiRes.imageSource || post.image_source || '', post.id).run().catch(() => {});
+          if (ctx?.waitUntil) ctx.waitUntil(upd); else await upd;
+        }
+      }
+    }
+    if (post.image_url) candidateUrls.push(post.image_url);
+
+    for (const imgSrc of candidateUrls) {
       try {
-        const up = await fetch(post.image_url, {
+        const up = await fetch(imgSrc, {
           headers: { 'User-Agent': 'Mozilla/5.0' },
           signal: timeoutSig(6000),
         });
@@ -719,7 +744,7 @@ export async function handleFetch(request, env, ctx) {
             },
           }));
         }
-      } catch { /* fall through to zero-storage PNG card */ }
+      } catch { /* try next candidate or fall through to PNG card */ }
     }
 
     const png = await generateOgPng({

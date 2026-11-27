@@ -133,6 +133,90 @@ export function parseGoogleNewsRSS(xml, limit = 8) {
 
 const ENGLISH_NEWS_GEOS = new Set(['US', 'GB', 'CA', 'AU', 'IN', 'IE', 'NZ', 'SG', 'ZA']);
 
+const NON_PHOTO_IMG_RE = /\b(logo|icon|favicon|avatar|badge|placeholder|default[-_]?(?:og|image)|1x1|pixel|spacer|sprite|branding)\b|\.svg(?:\?|$)/i;
+
+function extractOgMetaImage(html) {
+  const m =
+    html.match(/<meta[^>]+(?:property=["']og:image(?::secure_url)?["']|name=["']twitter:image(?::src)?["'])[^>]+content=["'](https?:\/\/[^"']+)["']/i) ||
+    html.match(/<meta[^>]+content=["'](https?:\/\/[^"']+)["'][^>]+(?:property=["']og:image(?::secure_url)?["']|name=["']twitter:image(?::src)?["'])/i);
+  if (!m) return '';
+  const url = decodeEntities(m[1]).trim();
+  if (!/^https:\/\//i.test(url) || NON_PHOTO_IMG_RE.test(url)) return '';
+  return url;
+}
+
+/**
+ * Resolve a real high-resolution newsroom photograph (>= 12 KB, >= 600px typical og:image)
+ * directly from the publisher article URLs when available.
+ */
+export async function extractHighResSourceImage(sourceUrls = []) {
+  const candidates = (Array.isArray(sourceUrls) ? sourceUrls : [])
+    .filter(s => s && s.url && /^https?:\/\//i.test(s.url) && !/news\.google\.com\/rss\/articles\//i.test(s.url))
+    .slice(0, 3);
+
+  for (const src of candidates) {
+    try {
+      const res = await fetch(src.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(4000) : undefined,
+      });
+      if (!res.ok) continue;
+      const reader = res.body?.getReader?.();
+      let html = '';
+      if (reader) {
+        const dec = new TextDecoder();
+        while (html.length < 49152) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          html += dec.decode(value, { stream: true });
+          if (html.includes('</head>')) break;
+        }
+        reader.cancel().catch(() => {});
+      } else {
+        html = (await res.text()).slice(0, 49152);
+      }
+
+      const imgUrl = extractOgMetaImage(html);
+      if (!imgUrl) continue;
+
+      const imgRes = await fetch(imgUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(3500) : undefined,
+      }).catch(() => null);
+
+      if (imgRes && imgRes.ok) {
+        const ct = imgRes.headers.get('content-type') || '';
+        const lenHeader = Number(imgRes.headers.get('content-length') || 0);
+        let sizeOk = lenHeader >= 12000;
+        if (!lenHeader && ct.startsWith('image/')) {
+          const ir = imgRes.body?.getReader?.();
+          let got = 0;
+          if (ir) {
+            while (got < 12000) {
+              const { value, done } = await ir.read();
+              if (done) break;
+              got += value?.length || 0;
+            }
+            ir.cancel().catch(() => {});
+          } else {
+            got = (await imgRes.arrayBuffer()).byteLength;
+          }
+          sizeOk = got >= 12000;
+        } else {
+          imgRes.body?.cancel?.().catch(() => {});
+        }
+        if (ct.startsWith('image/') && sizeOk) {
+          return { imageUrl: imgUrl, imageSource: src.name || '' };
+        }
+      }
+    } catch { /* try next publisher */ }
+  }
+  return null;
+}
+
 /**
  * Fetch Google News RSS localized to geo (English edition), falling back to US.
  */

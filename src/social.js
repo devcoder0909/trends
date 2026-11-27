@@ -374,15 +374,15 @@ async function postToX(env, item, budget) {
 export function formatFacebookPost(post, siteUrl) {
   const formatted = formatSocialPost(post, siteUrl, 295);
   const catLabel = String(post.category || 'News').toUpperCase();
-  const title = stripInlineSourceTags(formatted.title);
-  const summary = stripInlineSourceTags(formatted.summary);
+  const title = stripInlineSourceTags(formatted.title, post.sources);
+  const summary = stripInlineSourceTags(formatted.summary, post.sources);
 
   let rawFacts = post.key_facts;
   if (typeof rawFacts === 'string') {
     try { rawFacts = JSON.parse(rawFacts); } catch { rawFacts = []; }
   }
   const bullets = Array.isArray(rawFacts)
-    ? rawFacts.map(f => stripInlineSourceTags(f)).filter(Boolean).slice(0, 2)
+    ? rawFacts.map(f => stripInlineSourceTags(f, post.sources)).filter(Boolean).slice(0, 2)
     : [];
 
   const lines = [`[${catLabel} BRIEFING] ${title}`];

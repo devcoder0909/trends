@@ -119,7 +119,10 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
   const imgUrl = ogImage || (canon ? `${new URL(canon).origin}/og.png` : '/og.png');
   const ogUrl = canon ? `<meta property="og:url" content="${canon}">` : '';
   const preconnect = '<link rel="preconnect" href="https://news.google.com"><link rel="dns-prefetch" href="https://news.google.com">';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
+  const imgDims = /\/og(?:\/|\.png)/i.test(imgUrl)
+    ? '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
+    : '';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}">${imgDims}<meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
 function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
@@ -520,8 +523,9 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   const desc = buildMetaDescription(post);
   const title = clampTitle(post.title);
   const canon = `${siteUrl}/p/${post.slug}`;
-  const ogImg = `${siteUrl}/og/${post.slug}.png`;
   const postImg = `${siteUrl}/i/${post.slug}.jpg`;
+  const cardImg = `${siteUrl}/og/${post.slug}.png`;
+  const ogImg = post.image_url ? postImg : cardImg;
   const dateModified = post.updated_at || post.created_at;
   const keywords = [post.topic, cat, ...parseJsonField(post.also_searched, [])].filter(Boolean).join(', ');
   const sourceUrls = parseJsonField(post.source_urls, []).map(s => s.url).filter(Boolean);
