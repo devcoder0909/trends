@@ -793,7 +793,7 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
     const groundedDraft = mockGenerate(topic, category, sources);
     const groundedCheck = validateDraft(groundedDraft, topic, sources, existingTitles, { minWords: 110 });
     if (groundedCheck.ok) {
-      return { ok: true, post: groundedCheck.post, usedFallback: true };
+      return { ok: true, post: groundedCheck.post, usedFallback: true, reason: lastReason };
     }
   }
 

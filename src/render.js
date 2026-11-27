@@ -351,7 +351,7 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
   const canon = pg.page > 1 ? `${siteUrl}/page/${pg.page}` : `${siteUrl}/`;
   const title = pg.page > 1
     ? clampTitle(`Top Stories Page ${pg.page} of ${pg.totalPages} — ${settings.siteName}`)
-    : clampTitle(`${settings.siteName} — Live Factual Trend Briefings`);
+    : clampTitle(`${settings.siteName} — Top Stories & News`);
   const desc = pg.page > 1
     ? clampMeta(`Page ${pg.page} of ${pg.totalPages}: Real-time factual briefings on trending news across sports, tech, business, and science, verified across multiple outlets.`)
     : clampMeta('Real-time factual briefings on top trending stories in sports, tech, business, and world news, sourced from multiple outlets and updated every minute.');

@@ -36,7 +36,7 @@ const createBudget = (max = 42) => {
   };
 };
 
-const EDGE_CACHE_VER = '?__v=2';
+const EDGE_CACHE_VER = '?__v=3';
 
 async function purgeEdgePaths(siteHost, paths) {
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
@@ -549,6 +549,8 @@ export async function handleScheduled(env) {
             topic: item.title,
             sources: sourcesCsv,
             approxTraffic: item.approxTraffic || 0,
+            usedFallback: Boolean(result.usedFallback),
+            fallbackReason: result.reason || '',
           });
           count++;
           if (!settings.devMode && settings.publishGapMins > 0) break;
@@ -590,6 +592,8 @@ export async function handleScheduled(env) {
         indexNow: idxRes.status === 'fulfilled' ? idxRes.value : { error: idxRes.reason?.message },
         webSub: webSubRes.status === 'fulfilled' ? webSubRes.value : { error: webSubRes.reason?.message },
         google: gIdxRes.status === 'fulfilled' ? gIdxRes.value : { error: gIdxRes.reason?.message },
+        llmFallback: publishedPosts[0]?.usedFallback || false,
+        llmReason: publishedPosts[0]?.fallbackReason?.slice(0, 140) || '',
         urls: postPings.slice(0, 5),
       }).slice(0, 1000);
       await db.prepare("INSERT INTO social_state (k, v) VALUES ('indexing_telemetry', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(val).run();
