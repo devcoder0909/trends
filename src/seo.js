@@ -149,24 +149,32 @@ export async function pingIndexNow(env, urls) {
     keyLocation: `https://${host}/${env.INDEXNOW_KEY}.txt`,
     urlList,
   });
-  for (const endpoint of ['https://api.indexnow.org/indexnow', 'https://www.bing.com/indexnow']) {
-    try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        signal: timeoutSig(7000),
-        body: payload,
-      });
-      if (res.ok) return { ok: true, status: res.status, count: urlList.length };
-      if (res.status !== 429 && res.status < 500) {
-        console.error('IndexNow HTTP', res.status);
-        return { ok: false, status: res.status, count: urlList.length };
+  const endpoints = [
+    ['bing', 'https://www.bing.com/indexnow'],
+    ['indexnow', 'https://api.indexnow.org/indexnow'],
+    ['yandex', 'https://yandex.com/indexnow'],
+  ];
+  const statuses = {};
+  await Promise.allSettled(
+    endpoints.map(async ([name, endpoint]) => {
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          signal: timeoutSig(7000),
+          body: payload,
+        });
+        statuses[name] = res.status;
+        if (!res.ok) console.error(`IndexNow (${name}) HTTP`, res.status);
+      } catch (err) {
+        statuses[name] = 0;
+        console.error(`IndexNow (${name}) error:`, err.message);
       }
-    } catch (err) {
-      console.error('IndexNow error:', err.message);
-    }
-  }
-  return { ok: false, status: 429, count: urlList.length };
+    })
+  );
+  const ok = Object.values(statuses).some(s => s >= 200 && s < 300);
+  const status = Object.values(statuses).find(s => s >= 200 && s < 300) ?? Object.values(statuses)[0] ?? 0;
+  return { ok, status, statuses, count: urlList.length };
 }
 
 export async function pingWebSub(env, siteUrl) {

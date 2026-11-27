@@ -587,6 +587,7 @@ export async function handleScheduled(env) {
       purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths]),
     ]);
     try {
+      const keyName = postPings.length ? 'indexing_telemetry' : 'update_indexing_telemetry';
       const val = JSON.stringify({
         at: isoNow(),
         indexNow: idxRes.status === 'fulfilled' ? idxRes.value : { error: idxRes.reason?.message },
@@ -596,7 +597,7 @@ export async function handleScheduled(env) {
         llmReason: publishedPosts[0]?.fallbackReason?.slice(0, 140) || '',
         urls: postPings.slice(0, 5),
       }).slice(0, 1000);
-      await db.prepare("INSERT INTO social_state (k, v) VALUES ('indexing_telemetry', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(val).run();
+      await db.prepare('INSERT INTO social_state (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v').bind(keyName, val).run();
     } catch {}
   }
 }
