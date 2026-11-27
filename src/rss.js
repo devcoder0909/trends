@@ -39,6 +39,19 @@ export function parseApproxTraffic(raw) {
   return Math.round(num);
 }
 
+const STREAM_SPAM_RE = /\[free!*\]|\bfree\s+live\s+stream\b|\breddit\s+streams?\b|\bwatch\s+online\s+free\b|\bcrackstreams\b|\bstreameast\b|\b123movies\b/i;
+const NON_ENGLISH_HEADLINE_RE = /(?:^|\s)(?:en vivo|minuto a minuto|posibles alineaciones|última hora|cómo ver|dónde ver|cuándo juegan|partido de hoy|noticias de hoy|a qué hora)(?:\s|$)|[¿¡]/i;
+const NON_LATIN_SCRIPT_RE = /[\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Thai}\p{Script=Hebrew}\p{Script=Greek}]/gu;
+
+function isEnglishHeadline(text) {
+  const s = String(text || '').trim();
+  if (!s || NON_ENGLISH_HEADLINE_RE.test(s)) return false;
+  const letters = s.match(/\p{L}/gu) || [];
+  if (!letters.length) return true;
+  const nonLatin = s.match(NON_LATIN_SCRIPT_RE) || [];
+  return nonLatin.length / letters.length < 0.2;
+}
+
 /**
  * Parse Google Trends daily RSS.
  * Returns [{ title, approxTraffic, pubDate, newsItems: [{ title, snippet, source, url, pubDate }] }]
@@ -54,8 +67,9 @@ export function parseTrendsRSS(xml) {
 
     const approxTraffic = parseApproxTraffic(xmlTag(block, 'ht:approx_traffic'));
     const itemPubDate = xmlTag(block, 'pubDate');
-    const imageUrl = xmlTag(block, 'ht:picture');
+    const rawImg = xmlTag(block, 'ht:picture');
     const imageSource = stripHtml(xmlTag(block, 'ht:picture_source'));
+    const imageUrl = (rawImg && !STREAM_SPAM_RE.test(`${rawImg} ${imageSource}`)) ? rawImg : '';
     const newsItems = [];
     const niRe = /<ht:news_item>([\s\S]*?)<\/ht:news_item>/g;
     let ni;
@@ -64,7 +78,7 @@ export function parseTrendsRSS(xml) {
       const niSnippet = stripHtml(xmlTag(ni[1], 'ht:news_item_snippet'));
       const niSource = stripHtml(xmlTag(ni[1], 'ht:news_item_source'));
       const niUrl = xmlTag(ni[1], 'ht:news_item_url');
-      if (niTitle || niSnippet) {
+      if ((niTitle || niSnippet) && !STREAM_SPAM_RE.test(niTitle) && isEnglishHeadline(`${niTitle} ${niSnippet}`)) {
         newsItems.push({
           title: niTitle,
           snippet: niSnippet,
@@ -107,9 +121,7 @@ export function parseGoogleNewsRSS(xml, limit = 8) {
 
     const rawDesc = stripHtml(xmlTag(block, 'description'));
     const snippet = rawDesc && !rawDesc.toLowerCase().startsWith(title.toLowerCase()) ? rawDesc : '';
-    const isStreamSpam = /\[free!*\]|\bfree\s+live\s+stream\b|\breddit\s+streams?\b|\bwatch\s+online\s+free\b/i.test(title);
-
-    if (title && source && !isStreamSpam) {
+    if (title && source && !STREAM_SPAM_RE.test(title) && isEnglishHeadline(`${title} ${snippet}`)) {
       items.push({ title, snippet, source, url: link, pubDate });
     }
   }

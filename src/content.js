@@ -259,8 +259,8 @@ export function validateDraft(draft, topic, sources, existingTitles = new Set(),
 
   const bodyText = [cleanSummary, cleanWhat, cleanWhy, ...normalizedFacts, cleanNext].join(' ');
   const totalWords = countWords(bodyText);
-  if (totalWords < minWords || totalWords > 280) {
-    return { ok: false, reason: `word count ${totalWords} out of range (${minWords}-280)` };
+  if (totalWords < minWords || totalWords > 440) {
+    return { ok: false, reason: `word count ${totalWords} out of range (${minWords}-440)` };
   }
 
   const fullText = `${title} ${bodyText}`;
@@ -351,21 +351,21 @@ SOURCES:
 ${formattedSources}
 ${feedbackBlock}
 RULES:
-1. Plain English (Grade 8 level). No clickbait, emojis, "breaking" (unless in SOURCES), "shocking", or "in conclusion".
+1. Plain English (Grade 8 level). No clickbait, emojis, "breaking" (unless in SOURCES), "shocking", "in conclusion", "major developments", or "closely monitoring the situation".
 2. NEVER write [Source Name] brackets, parenthetical outlet citations, or "According to <Outlet>" anywhere inside title, summary, what_happened, why_trending, key_facts, or what_to_know_next — sources are displayed separately.
-3. Total 160-230 words across summary, what_happened, why_trending, key_facts, what_to_know_next (min 120, max 260).
-4. summary: ONE direct answer sentence (15-26 words) stating why ${displayTopic} is trending.
+3. Total 210-330 words across summary, what_happened, why_trending, key_facts, what_to_know_next (min 150, max 400).
+4. summary: ONE direct factual sentence (18-28 words) answering why ${displayTopic} is trending.
 
 JSON ONLY:
 {
-  "title": "<SEO search-intent headline <=58 chars leading with ${displayTopic}>",
+  "title": "<SEO search-intent headline <=58 chars leading with ${displayTopic} and specific news angle>",
   "category": "${category}",
-  "summary": "<ONE sentence, 15-26 words, no source names>",
-  "what_happened": "<3 sentences (55-80 words) covering who, what, when, where>",
-  "why_trending": "<2 sentences (30-45 words) on current search interest>",
-  "key_facts": ["<concise fact 1 without brackets>", "<concise fact 2 without brackets>", "<concise fact 3 without brackets>"],
-  "what_to_know_next": "<1-2 sentences (22-38 words) on upcoming timing or unconfirmed details>",
-  "also_searched": ["<related query 1>", "<related query 2>", "<related query 3>"]
+  "summary": "<ONE sentence, 18-28 words, no source names>",
+  "what_happened": "<3-4 detailed sentences (70-110 words) covering who, what, when, where, and confirmed figures/events>",
+  "why_trending": "<2-3 sentences (45-70 words) explaining concrete public, industry, or viewer drivers>",
+  "key_facts": ["<concise distinct fact 1>", "<concise distinct fact 2>", "<concise distinct fact 3>", "<concise distinct fact 4>"],
+  "what_to_know_next": "<2 sentences (30-55 words) on upcoming dates, official schedule, or unconfirmed details>",
+  "also_searched": ["<related query 1>", "<related query 2>", "<related query 3>", "<related query 4>"]
 }`;
 }
 
@@ -436,7 +436,7 @@ export async function callLLM(env, prompt, budget = null) {
           model,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.2,
-          max_tokens: 520,
+          max_tokens: 760,
         }),
       });
       if (!res.ok) {
@@ -481,7 +481,7 @@ export async function callLLM(env, prompt, budget = null) {
             signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
             body: JSON.stringify({
               contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 520 },
+              generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 760 },
             }),
           }
         );
@@ -626,54 +626,69 @@ export function mockGenerate(topic, category, sources) {
   const tertiary = s[2] || secondary;
   const fourth = s[3] || tertiary;
 
-  const s1 = (primary.title || displayTopic).replace(/[.!?]+$/, '');
-  const s2 = (secondary.title || displayTopic).replace(/[.!?]+$/, '');
-  const s3 = (tertiary.title || displayTopic).replace(/[.!?]+$/, '');
-  const s4 = (fourth.snippet || fourth.title || displayTopic).replace(/[.!?]+$/, '');
+  const clean = txt => String(txt || '').replace(/[.!?]+$/, '').trim();
+  const s1 = clean(primary.title) || displayTopic;
+  const s2 = clean(secondary.title) || displayTopic;
+  const s3 = clean(tertiary.title) || displayTopic;
+  const s4 = clean(fourth.snippet || fourth.title) || displayTopic;
+  const catArea = category === 'News' ? 'current headlines' : `${category.toLowerCase()} coverage`;
 
   const isMatchResult = category === 'Sports' && /\b(vs\.?|beats|defeats|win|wins|score|match|game)\b/i.test(`${topic} ${s1}`);
   const titleTemplates = {
-    Sports: isMatchResult ? `${displayTopic} Match Result and Latest Score` : `${displayTopic}: Latest Sports Updates and Reports`,
-    Tech: `${displayTopic} Announcement: Key Details and Status`,
-    Entertainment: `${displayTopic} Release Details and Updates`,
-    Weather: `${displayTopic} Weather Forecast and Advisories`,
-    Science: `${displayTopic} Mission Findings and Latest Update`,
-    Business: /\bearnings\b/i.test(displayTopic) ? `${displayTopic} Report and Market Reaction` : `${displayTopic}: Business Updates and Reports`,
-    Gaming: `${displayTopic} Game Release Date and Details`,
-    Holidays: `${displayTopic} Holiday Schedule and Key Details`,
-    News: `Why Is ${displayTopic} Trending? What Happened`,
+    Sports: isMatchResult ? `${displayTopic}: Match Result, Score and Recap` : `${displayTopic}: Latest ${category} News and Context`,
+    Tech: `${displayTopic}: Key Tech Details and Status`,
+    Entertainment: `${displayTopic}: Latest Film and TV Update`,
+    Weather: `${displayTopic}: Forecast, Alerts and Impact`,
+    Science: `${displayTopic}: Key Findings and Status`,
+    Business: /\bearnings\b/i.test(displayTopic) ? `${displayTopic} Report and Market Impact` : `${displayTopic}: Market Reaction and Key Details`,
+    Gaming: `${displayTopic}: Release Details and Patch Status`,
+    Holidays: `${displayTopic}: Schedule and Public Guide`,
+    News: `${displayTopic}: Key Facts and Recent Updates`,
   };
-  let title = titleTemplates[category] || `Why Is ${displayTopic} Trending? What Happened`;
+  let title = (s1.length >= 24 && s1.length <= 58 && s1.toLowerCase().includes(displayTopic.toLowerCase()))
+    ? s1
+    : (titleTemplates[category] || `${displayTopic}: Key Facts and Recent Updates`);
   if (title.length > 60) {
-    title = `${displayTopic.slice(0, 40)} — Latest Update`.slice(0, 60);
+    title = `${displayTopic.slice(0, 38)} — Key Updates`.slice(0, 60).trim();
     if (title.length > 60) title = displayTopic.slice(0, 60).trim();
   }
 
-  const summary = `${displayTopic} is trending across ${category.toLowerCase()} news following major developments and official public updates.`;
-  const trimmedSummary = countWords(summary) > 28
-    ? `${displayTopic} is trending following new confirmed updates.`
-    : summary;
+  const summaryRaw = `${displayTopic} drew attention across ${catArea} following recent public reports, with newsrooms summarizing the latest verified facts.`;
+  const trimmedSummary = countWords(summaryRaw) > 28
+    ? `${displayTopic} is gaining attention following new verified multi-outlet reports.`
+    : summaryRaw;
 
-  const snip1 = primary.snippet ? `${primary.snippet.replace(/[.!?]+$/, '')}.` : '';
-  const snip2 = secondary.snippet ? `${secondary.snippet.replace(/[.!?]+$/, '')}.` : '';
+  const snip1 = clean(primary.snippet) ? `${clean(primary.snippet)}.` : '';
+  const snip2 = clean(secondary.snippet) && clean(secondary.snippet) !== clean(primary.snippet) ? `${clean(secondary.snippet)}.` : '';
+  const snip3 = clean(tertiary.snippet) && clean(tertiary.snippet) !== clean(secondary.snippet) ? `${clean(tertiary.snippet)}.` : '';
 
-  const what_happened = `${displayTopic} drew widespread ${category.toLowerCase()} interest as key updates surfaced online. ${s1}. ${snip1} Further details indicate that ${s2}. ${snip2}`.replace(/\s+/g, ' ').trim();
+  const what_happened = [
+    `${displayTopic} became a focal point in ${catArea} after multiple public briefings highlighted the latest developments.`,
+    `${s1}.`,
+    snip1,
+    s2 !== s1 ? `Additional coverage reports that ${s2}.` : '',
+    snip2,
+  ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 
-  const why_trending = `Search interest around ${displayTopic} climbed rapidly as readers sought confirmed timelines, verified details, and ongoing developments across multiple public updates.`;
+  const why_trending = [
+    `Public search volume for ${displayTopic} rose sharply as newsrooms published new reporting on ${s3 !== s1 ? s3.toLowerCase() : displayTopic}.`,
+    snip3 || (s4 !== s3 ? `Readers also looked into details surrounding ${s4}.` : `Interest reflects widespread demand for verified context on the story.`),
+  ].join(' ').replace(/\s+/g, ' ').trim();
 
   const bulletsRaw = [
     `${s1}.`,
-    `${s2}.`,
-    `${(tertiary.snippet || s3).replace(/[.!?]+$/, '')}.`,
-  ];
-  if (s.length >= 4 && s4 !== s3) {
-    bulletsRaw.push(`${s4}.`);
-  }
+    s2 !== s1 ? `${s2}.` : '',
+    `${clean(tertiary.snippet) || s3}.`,
+    s.length >= 4 && s4 !== s3 ? `${s4}.` : '',
+  ].filter(Boolean);
+  const bullets = [...new Set(bulletsRaw)].slice(0, 5);
+  while (bullets.length < 3) bullets.push(`${displayTopic} coverage remains active across ${catArea}.`);
 
-  const what_to_know_next = `Additional official announcements and follow-up details on ${displayTopic} are expected as the story develops. Unverified claims remain outside confirmed public statements.`;
+  const what_to_know_next = `Further official statements and scheduled updates on ${displayTopic} are awaited as public information develops. Readers should verify timing changes directly against primary announcements.`;
 
   const also_searched = [
     `${displayTopic} update`,
+    `${displayTopic} explained`,
     s1.split(/\s+/).slice(0, 4).join(' '),
     s2.split(/\s+/).slice(0, 4).join(' '),
   ];
@@ -684,7 +699,7 @@ export function mockGenerate(topic, category, sources) {
     summary: trimmedSummary,
     what_happened,
     why_trending,
-    key_facts: bulletsRaw,
+    key_facts: bullets,
     what_to_know_next,
     also_searched,
   };
@@ -722,8 +737,8 @@ export async function generateAndValidatePost(env, topicObj, existingTitles = ne
   let lastReason = 'validation failed';
   let infraFailures = 0;
 
-  // Single LLM attempt per topic maximizes free-tier quota; grounded mockGenerate catches any quality/quota miss
-  const maxAttempts = typeof options.customGenerator === 'function' ? 3 : 1;
+  // Up to 2 LLM attempts (attempt 2 fixes any single-shot validation miss with feedback before grounded failsafe)
+  const maxAttempts = typeof options.customGenerator === 'function' ? 3 : 2;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let draft;

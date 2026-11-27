@@ -544,7 +544,7 @@ export async function handleScheduled(env) {
     }
   }
 
-  const postPings = [...new Set([...newUrls.filter(u => u.includes('/p/')), ...updatedUrls, ...promotedUrls])];
+  const postPings = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls].filter(u => u.includes('/p/')))];
   const indexNowBatch = [...new Set([...newUrls, ...updatedUrls, ...promotedUrls])];
   const updatedPaths = updatedUrls.map(u => {
     try { return new URL(u).pathname; } catch { return ''; }
@@ -559,13 +559,23 @@ export async function handleScheduled(env) {
         }
         return res;
       });
-    await Promise.allSettled([
+    const [idxRes, webSubRes, gIdxRes] = await Promise.allSettled([
       pingIndexNow(env, indexNowBatch),
       pingWebSub(env, siteUrl),
       pingGoogleIndexing(env, postPings, 'URL_UPDATED'),
       socialTask,
       purgeEdgePaths(settings.siteHost, ['/', '/sitemap.xml', '/news-sitemap.xml', '/rss.xml', '/llms.txt', ...touchedCats, ...updatedPaths]),
     ]);
+    try {
+      const val = JSON.stringify({
+        at: isoNow(),
+        indexNow: idxRes.status === 'fulfilled' ? idxRes.value : { error: idxRes.reason?.message },
+        webSub: webSubRes.status === 'fulfilled' ? webSubRes.value : { error: webSubRes.reason?.message },
+        google: gIdxRes.status === 'fulfilled' ? gIdxRes.value : { error: gIdxRes.reason?.message },
+        urls: postPings.slice(0, 5),
+      }).slice(0, 1000);
+      await db.prepare("INSERT INTO social_state (k, v) VALUES ('indexing_telemetry', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(val).run();
+    } catch {}
   }
 }
 

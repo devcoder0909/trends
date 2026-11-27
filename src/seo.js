@@ -47,14 +47,11 @@ export function sitemapXml(posts, siteUrl) {
 
 export function newsSitemapXml(posts, siteUrl, siteName = 'Trending Now', nowMs = Date.now()) {
   const cutoffMs = nowMs - 48 * 3600_000;
-  let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">';
+  let x = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">';
   let count = 0;
   for (const p of posts) {
     if (Date.parse(p.created_at) < cutoffMs) continue;
-    let kw = [p.category || 'News'];
-    try { kw = [...kw, ...(JSON.parse(p.also_searched || '[]') || [])]; } catch {}
-    const kwStr = [...new Set(kw)].filter(Boolean).slice(0, 5).join(', ');
-    x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><news:news><news:publication><news:name>${esc(siteName)}</news:name><news:language>en</news:language></news:publication><news:publication_date>${esc(p.created_at)}</news:publication_date><news:title>${esc(p.title)}</news:title>${kwStr ? `<news:keywords>${esc(kwStr)}</news:keywords>` : ''}</news:news></url>`;
+    x += `<url><loc>${siteUrl}/p/${esc(p.slug)}</loc><news:news><news:publication><news:name>${esc(siteName)}</news:name><news:language>en</news:language></news:publication><news:publication_date>${esc(p.created_at)}</news:publication_date><news:title>${esc(p.title)}</news:title></news:news><image:image><image:loc>${siteUrl}/i/${esc(p.slug)}.jpg</image:loc><image:title>${esc(p.title)}</image:title></image:image></url>`;
     count++;
   }
   if (count === 0) {
@@ -142,35 +139,43 @@ export function rssFeed(posts, siteUrl, siteName = 'Trending Now') {
 export async function pingIndexNow(env, urls) {
   const uniqueUrls = [...new Set(urls)].filter(Boolean);
   const host = String(env.SITE_HOST || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-  if (!env.INDEXNOW_KEY || !host || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
+  if (!env.INDEXNOW_KEY || !host || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') {
+    return { skipped: true };
+  }
+  const urlList = uniqueUrls.slice(0, 10_000);
   try {
     const res = await fetch('https://api.indexnow.org/indexnow', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       signal: timeoutSig(7000),
       body: JSON.stringify({
         host,
         key: env.INDEXNOW_KEY,
         keyLocation: `https://${host}/${env.INDEXNOW_KEY}.txt`,
-        urlList: uniqueUrls.slice(0, 10_000),
+        urlList,
       }),
     });
     if (!res.ok) console.error('IndexNow HTTP', res.status);
+    return { ok: res.ok, status: res.status, count: urlList.length };
   } catch (err) {
     console.error('IndexNow error:', err.message);
+    return { ok: false, status: 0, count: urlList.length, error: err.message };
   }
 }
 
 export async function pingWebSub(env, siteUrl) {
-  if (String(env.DEV_MODE || '').toLowerCase() === 'true') return;
+  if (String(env.DEV_MODE || '').toLowerCase() === 'true') return { skipped: true };
   try {
-    await fetch('https://pubsubhubbub.appspot.com/', {
+    const res = await fetch('https://pubsubhubbub.appspot.com/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       signal: timeoutSig(7000),
       body: `hub.mode=publish&hub.url=${encodeURIComponent(`${siteUrl}/rss.xml`)}`,
     });
-  } catch { /* best-effort */ }
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    return { ok: false, status: 0, error: err.message };
+  }
 }
 
 function b64url(input) {
@@ -232,12 +237,20 @@ async function getGoogleAccessToken(serviceAccountJson) {
  * Runs concurrently for instant notification velocity.
  */
 export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
-  const uniqueUrls = [...new Set(urls)].filter(Boolean).slice(0, 10);
-  if (!env.GOOGLE_INDEXING_KEY || !uniqueUrls.length || String(env.DEV_MODE || '').toLowerCase() === 'true') return;
+  const uniqueUrls = [...new Set(urls)].filter(Boolean);
+  const filtered = type === 'URL_UPDATED' ? uniqueUrls.filter(u => u.includes('/p/')) : uniqueUrls;
+  const targets = filtered.slice(0, 10);
+  if (!env.GOOGLE_INDEXING_KEY || !targets.length || String(env.DEV_MODE || '').toLowerCase() === 'true') {
+    return { skipped: true };
+  }
+  let okCount = 0;
+  let failCount = 0;
+  let lastStatus = 0;
+  let lastError = '';
   try {
     const token = await getGoogleAccessToken(env.GOOGLE_INDEXING_KEY);
     await Promise.allSettled(
-      uniqueUrls.map(async url => {
+      targets.map(async url => {
         const res = await fetch('https://indexing.googleapis.com/v3/urlNotifications:publish', {
           method: 'POST',
           headers: {
@@ -247,10 +260,20 @@ export async function pingGoogleIndexing(env, urls, type = 'URL_UPDATED') {
           signal: timeoutSig(7000),
           body: JSON.stringify({ url, type }),
         });
-        if (!res.ok) console.error('Google Indexing HTTP', res.status, url, await res.text());
+        lastStatus = res.status;
+        if (res.ok) {
+          okCount++;
+        } else {
+          failCount++;
+          lastError = (await res.text()).slice(0, 200);
+          console.error('Google Indexing HTTP', res.status, url, lastError);
+        }
       })
     );
   } catch (err) {
+    failCount = targets.length;
+    lastError = String(err.message || err).slice(0, 200);
     console.error('Google Indexing error:', err.message);
   }
+  return { okCount, failCount, lastStatus, lastError, sent: targets.length };
 }

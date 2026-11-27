@@ -564,23 +564,20 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     ],
   };
 
-  // FAQ schema from key_facts for Google rich snippets (People Also Ask eligibility)
-  const keyFactsArr = parseJsonField(post.key_facts || post.bullets, [])
-    .map(f => stripInlineSourceTags(f, post.sources))
-    .filter(Boolean);
+  // FAQ schema matching each editorial answer cleanly to its section
   const topicDisplay = formatDisplayTopic(post.topic) || post.title;
-  const faqLd = keyFactsArr.length >= 2 ? {
+  const faqPairs = [
+    [`What happened with ${topicDisplay}?`, stripInlineSourceTags(post.summary || post.what_happened || '', post.sources)],
+    [`Why is ${topicDisplay} trending?`, stripInlineSourceTags(post.why_trending || '', post.sources)],
+    [`What is expected next for ${topicDisplay}?`, stripInlineSourceTags(post.what_to_know_next || '', post.sources)],
+  ].filter(([, a]) => Boolean(a));
+  const faqLd = faqPairs.length >= 2 ? {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
-    mainEntity: keyFactsArr.slice(0, 3).map((fact, i) => ({
+    mainEntity: faqPairs.map(([q, a]) => ({
       '@type': 'Question',
-      name: i === 0 ? `What happened with ${topicDisplay}?`
-        : i === 1 ? `Why is ${topicDisplay} trending?`
-        : `What should I know next about ${topicDisplay}?`,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: fact,
-      },
+      name: q,
+      acceptedAnswer: { '@type': 'Answer', text: a },
     })),
   } : null;
 
@@ -639,12 +636,12 @@ export function aboutPage(settings, siteUrl) {
     `<main class="w">` +
     renderBackBar([{ label: 'Home', href: '/' }], 'About', '/') +
     `<article class="c"><h1>About ${esc(settings.siteName)}</h1>` +
-    `<p>This site publishes short, factual briefings on trending search topics using only headlines and snippets from public news feeds.</p>` +
-    `<ul><li>Every fact, number, and date is checked against listed news outlets before publishing.</li>` +
-    `<li>Briefings rotate automatically as trends evolve.</li>` +
-    `<li>Sensitive topics, rumors, and single-outlet stories are filtered out.</li>` +
-    `<li>No personal data, IP addresses, ads, or third-party tracking scripts are used.</li>` +
-    `<li>Contact: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul></article>` +
+    `<p>${esc(settings.siteName)} publishes concise, fact-checked editorial briefings on trending news, sports, business, technology, and science topics from public news feeds.</p>` +
+    `<ul><li>Every claim, figure, and date is verified against at least two independent news outlets before publishing.</li>` +
+    `<li>Briefings receive live chronological updates whenever new primary reporting emerges.</li>` +
+    `<li>Sensitive tragedies, unverified rumors, spam streams, and single-outlet items are automatically excluded.</li>` +
+    `<li>Zero invasive tracking, zero behavioral ads, and fast mobile-first delivery.</li>` +
+    `<li>Editorial corrections &amp; inquiries: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul></article>` +
     `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/">Top stories</a></div></main>` +
     htmlFoot(settings.contactEmail);
 }
