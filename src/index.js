@@ -36,7 +36,7 @@ const createBudget = (max = 42) => {
   };
 };
 
-const EDGE_CACHE_VER = '?__v=3';
+const EDGE_CACHE_VER = '?__v=4';
 
 async function purgeEdgePaths(siteHost, paths) {
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
@@ -821,7 +821,7 @@ export async function handleFetch(request, env, ctx) {
   ).bind(now).all()).results || [];
 
   const liveRelated = async () => (await db.prepare(
-    "SELECT slug, title, topic, category, created_at, also_searched FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 50"
+    "SELECT slug, title, topic, category, created_at, also_searched FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 160"
   ).bind(now).all()).results || [];
 
   const liveRss = async () => (await db.prepare(
@@ -927,8 +927,23 @@ export async function handleFetch(request, env, ctx) {
       const others = allLive.filter(p => p.slug !== slug);
       const sameCat = others.filter(p => (p.category || 'News') === (post.category || 'News'));
       const diffCat = others.filter(p => (p.category || 'News') !== (post.category || 'News'));
-      // Strict category silo linking first; only fall back to cross-category if silo has <2 siblings
-      const related = (sameCat.length >= 2 ? sameCat : [...sameCat, ...diffCat]).slice(0, 6);
+      // Mix 3 newest same-category siblings + 3 deeper rotated siblings so older posts never become crawl orphans
+      const deeper = sameCat.slice(3);
+      const seed = [...slug].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+      const deepPicks = deeper.length <= 3
+        ? deeper
+        : [0, 1, 2].map(i => deeper[(seed + i * 7) % deeper.length]);
+      const pool = sameCat.length >= 2
+        ? [...sameCat.slice(0, 3), ...deepPicks, ...sameCat, ...diffCat]
+        : [...sameCat, ...diffCat];
+      const seenRel = new Set();
+      const related = [];
+      for (const item of pool) {
+        if (!item || seenRel.has(item.slug)) continue;
+        seenRel.add(item.slug);
+        related.push(item);
+        if (related.length >= 6) break;
+      }
 
       return cacheAndReturn(htmlRes(postPage(post, related, allLive, settings, siteUrl, nowMs), 200, {
         ...SEO_INDEX_HEADERS,

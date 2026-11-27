@@ -54,11 +54,11 @@ export const isSensitive = text => findSensitiveMatch(text) !== null;
 
 // Category definitions ordered for informational intent classification
 export const CATEGORY_RULES = [
-  ['Sports', /\b(nba|nfl|mlb|nhl|fifa|uefa|ncaa|premier league|champions league|europa league|conference league|world cup|olympics|playoffs|finals|match|stadium|goal|touchdown|quarterback|running back|wide receiver|fumble|fumbles|coach|tournament|championship|grand prix|ufc|tennis|cricket|golf|league|football|basketball|baseball|soccer|hockey|bears|lions|chiefs|eagles|cowboys|lakers|celtics|arsenal|chelsea|liverpool|real madrid|barcelona|dazn)\b/gi],
-  ['Gaming', /\b(playstation|ps5|xbox|nintendo|switch|steam|video game|game release|dlc|esports|rpg|fps|minecraft|fortnite|gta|grand theft auto|rockstar|elden ring|zelda|pokemon|patch notes|60 fps)\b/gi],
+  ['Sports', /\b(nba|nfl|mlb|nhl|fifa|uefa|ncaa|premier league|champions league|europa league|conference league|world cup|olympics|playoffs|finals|match|stadium|goal|touchdown|quarterback|running back|wide receiver|wr|rb|te|lb|cb|defenseman|goalie|goaltender|puck|fumble|fumbles|coach|tournament|championship|grand prix|ufc|tennis|cricket|golf|league|football|basketball|baseball|soccer|hockey|bears|lions|chiefs|eagles|cowboys|jaguars|ravens|steelers|packers|49ers|bills|lakers|celtics|grizzlies|warriors|maple leafs|bruins|arsenal|chelsea|liverpool|real madrid|barcelona|man utd|manchester united|injury report|injured reserve|week-to-week|contract extension|10-day contract|waivers|draft pick|free agency|roster|midfielder|striker|lineup|dazn)\b/gi],
+  ['Gaming', /\b(playstation|ps5|xbox|nintendo|switch|steam|video game|game release|dlc|esports|rpg|fps|minecraft|fortnite|gta|grand theft auto|rockstar|elden ring|zelda|pokemon|silksong|hollow knight|indie game|gameplay|patch notes|60 fps)\b/gi],
   ['Tech', /\b(ai|artificial intelligence|apple|google|microsoft|meta|openai|nvidia|tesla|iphone|android|macbook|software|outage|(?:server|site|app|network|system)\s+down|chip|semiconductor|cybersecurity|ios|windows|pixel|chatgpt|gemini|youtube tv|youtube|tiktok|instagram|cloud|vibe coding|cyber|hack)\b/gi],
   ['Entertainment', /\b(movie|film|box office|trailer|netflix|disney|hbo|max|prime video|paramount|cbs|nbc|abc|bbc|hulu|apple tv|series|season|episode|finale|album|song|concert|tour|singer|rapper|musician|actor|actress|celebrity|influencer|youtuber|streamer|twitch|tiktok|oscar|grammy|emmy|golden globe|met gala|tv show|premiere|cast|casting|sequel|directed|director|filming|sci-fi|documentary|comedy|comedian|hollywood|bollywood|k-pop|bts|wedding|engaged|engagement|dating|breakup|split|divorce|feud|drama|viral|podcast|interview|late night|chef|masterchef|kitchen|reality tv|full house|paw patrol)\b/gi],
-  ['Business', /\b(earnings|revenue|quarterly|profit|stock|stock market|shares|nasdaq|dow|nyse|wall street|ipo|merger|acquisition|ceo|chief executive|layoffs|fed|federal reserve|interest rate|inflation|gdp|sec|market cap|dividend|earnings beat|tariff|tariffs|trade|economy|bitcoin|crypto|retail|walmart|amazon|target|black friday)\b/gi],
+  ['Business', /\b(earnings|revenue|quarterly|profit|stock|stock market|shares|nasdaq|dow|nyse|wall street|ipo|merger|acquisition|ceo|chief executive|layoffs|fed|federal reserve|interest rate|inflation|gdp|sec|market cap|dividend|earnings beat|tariff|tariffs|trade war|trade deficit|free trade|trade deal|economy|bitcoin|crypto|retail|walmart|amazon|target|black friday)\b/gi],
   ['Science', /\b(nasa|spacex|space|mars|moon|planet|orbital|asteroid|eclipse|telescope|jwst|scientists|research|study|discovery|rocket|orbit|physics|archaeology|fossil|spacecraft|crater)\b/gi],
   ['Weather', /\b(hurricanes?|tornadoe?s?|storms?|blizzards?|floods?|flooding|rain(?:fall)?|heatwaves?|heat waves?|wildfires?|earthquakes?|tsunamis?|advisory|forecasts?|weather|snowstorms?|cyclones?|typhoons?|winds|landslides?|evacuations?)\b/gi],
   ['Holidays', /\b(holiday|thanksgiving|christmas|easter|memorial day|labor day|independence day|new year|bank holiday|halloween|diwali|eid|festival)\b/gi],
@@ -85,11 +85,12 @@ export const normalizeHost = raw =>
   String(raw || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
 
 const DISPLAY_ACRONYMS = new Set([
-  'US', 'UK', 'EU', 'UN', 'UAE', 'USA', 'AI', 'TV', 'QB', 'RB', 'WR', 'CEO', 'CFO', 'CTO',
+  'US', 'UK', 'EU', 'UN', 'UAE', 'USA', 'AI', 'TV', 'QB', 'RB', 'WR', 'TE', 'LB', 'CB', 'CEO', 'CFO', 'CTO',
   'GDP', 'SEC', 'FDA', 'NASA', 'ECB', 'IMF', 'WHO', 'CDC', 'DOJ', 'FBI', 'CIA', 'IRS', 'GOP', 'DNC',
-  'NFL', 'NBA', 'MLB', 'NHL', 'NCAA', 'FIFA', 'UEFA', 'UFC', 'F1', 'IPL', 'WWE', 'ESPN',
-  'BBC', 'CNN', 'CBS', 'NBC', 'ABC', 'FOX', 'HBO', 'WSJ',
-  'SAP', 'JD', 'IBM', 'AMD', 'AWS', 'EV', 'IPO', 'ETF', 'RTX', 'PS5', 'GTA', 'DLC', 'IOS', 'PC',
+  'NFL', 'NBA', 'MLB', 'NHL', 'NCAA', 'FIFA', 'UEFA', 'UFC', 'F1', 'IPL', 'WWE', 'AFL', 'NRL', 'ESPN',
+  'BBC', 'CNN', 'CBS', 'NBC', 'ABC', 'FOX', 'HBO', 'WSJ', 'MS', 'NY', 'LA',
+  'SAP', 'JD', 'MSTR', 'NVDA', 'AAPL', 'TSLA', 'AMZN', 'MSFT', 'META', 'BTC', 'ETH', 'IBM', 'AMD', 'AWS',
+  'EV', 'IPO', 'ETF', 'RTX', 'PS5', 'GTA', 'DLC', 'RPG', 'FPS', 'IOS', 'PC',
 ]);
 const MINOR_WORDS = new Set(['a', 'an', 'the', 'and', 'or', 'for', 'of', 'in', 'on', 'at', 'to', 'vs', 'v', 'with', 'over', 'by']);
 

@@ -1,0 +1,57 @@
+name: IndexNow Sync
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync recent articles to Bing & IndexNow Hub
+        run: |
+          python3 - <<'PY'
+          import json, re, urllib.request, datetime
+
+          HOST = 'trendingrightnow.online'
+          KEY = '5b30099f30254ad4a238a5276665a6de'
+          SITEMAP = f'https://{HOST}/news-sitemap.xml'
+
+          req = urllib.request.Request(SITEMAP, headers={'User-Agent': 'IndexNowSync/1.0'})
+          xml = urllib.request.urlopen(req, timeout=15).read().decode('utf-8', 'ignore')
+          now = datetime.datetime.now(datetime.timezone.utc)
+          cutoff = now - datetime.timedelta(hours=2)
+
+          urls = [f'https://{HOST}/']
+          for block in re.findall(r'<url>([\s\S]*?)</url>', xml):
+              loc_m = re.search(r'<loc>([^<]+)</loc>', block)
+              dt_m = re.search(r'<news:publication_date>([^<]+)</news:publication_date>', block)
+              if not loc_m:
+                  continue
+              if dt_m:
+                  try:
+                      dt = datetime.datetime.fromisoformat(dt_m.group(1).replace('Z', '+00:00'))
+                      if dt < cutoff:
+                          continue
+                  except Exception:
+                      pass
+              urls.append(loc_m.group(1).strip())
+
+          urls = list(dict.fromkeys(urls))[:500]
+          print(f'Submitting {len(urls)} URLs from last 2h')
+          payload = json.dumps({
+              'host': HOST,
+              'key': KEY,
+              'keyLocation': f'https://{HOST}/{KEY}.txt',
+              'urlList': urls,
+          }).encode('utf-8')
+
+          for ep in ('https://www.bing.com/indexnow', 'https://api.indexnow.org/indexnow'):
+              try:
+                  r = urllib.request.Request(ep, data=payload, method='POST', headers={'Content-Type': 'application/json; charset=utf-8'})
+                  with urllib.request.urlopen(r, timeout=15) as resp:
+                      print(ep, '->', resp.status)
+              except Exception as e:
+                  print(ep, '-> ERR', e)
+          PY

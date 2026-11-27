@@ -137,6 +137,12 @@ export function buildSourceCorpus(topic, sources) {
         const m = MONTH_NAMES[d.getUTCMonth()];
         const wd = DAY_NAMES[(d.getUTCDay() + 6) % 7];
         chunks.push(`${m[0]} ${m[1]} ${wd[0]} ${wd[1]} ${d.getUTCDate()} ${d.getUTCFullYear()}`);
+        // Allow upcoming +1..+3 day weekday names (e.g. Friday story referencing Sunday matchup) without relaxing numeric dates
+        for (let off = 1; off <= 3; off++) {
+          const nextD = new Date(d.getTime() + off * 86400_000);
+          const nextWd = DAY_NAMES[(nextD.getUTCDay() + 6) % 7];
+          chunks.push(`${nextWd[0]} ${nextWd[1]}`);
+        }
       }
     }
   }

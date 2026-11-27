@@ -366,8 +366,10 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
       inLanguage: 'en',
       publisher: {
         '@type': ['Organization', 'NewsMediaOrganization'],
+        '@id': `${siteUrl}/#publisher`,
         name: settings.siteName,
         url: `${siteUrl}/`,
+        sameAs: ['https://t.me/trendingrightnow_news'],
         logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.png`, width: 256, height: 256 },
       },
       potentialAction: {
@@ -588,6 +590,7 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
       '@id': `${siteUrl}/#publisher`,
       name: settings.siteName,
       url: siteUrl,
+      sameAs: ['https://t.me/trendingrightnow_news'],
       logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.png`, width: 256, height: 256 },
     },
   };
@@ -675,8 +678,9 @@ export function aboutPage(settings, siteUrl) {
     `<li>Briefings receive live chronological updates whenever new primary reporting emerges.</li>` +
     `<li>Sensitive tragedies, unverified rumors, spam streams, and single-outlet items are automatically excluded.</li>` +
     `<li>Zero invasive tracking, zero behavioral ads, and fast mobile-first delivery.</li>` +
+    `<li>Follow live breaking updates on <a href="https://t.me/trendingrightnow_news" rel="noopener">Telegram</a> or browse via <a href="/rss.xml">RSS</a>.</li>` +
     `<li>Editorial corrections &amp; inquiries: <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a></li></ul></article>` +
-    `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/">Top stories</a></div></main>` +
+    `<div class="f">${NAV_CATEGORIES.map(c => `<a class="bt" href="/c/${slugify(c)}">${esc(c)}</a>`).join('')}<a class="bt on" href="/">Top stories</a></div></main>` +
     htmlFoot(settings.contactEmail);
 }
 
