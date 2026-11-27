@@ -36,7 +36,7 @@ const createBudget = (max = 42) => {
   };
 };
 
-const EDGE_CACHE_VER = '?__v=5';
+const EDGE_CACHE_VER = '?__v=6';
 
 async function purgeEdgePaths(siteHost, paths) {
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;

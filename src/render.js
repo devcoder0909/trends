@@ -704,12 +704,12 @@ export function aboutPage(settings, siteUrl) {
     `<article class="c"><h1>About ${esc(settings.siteName)} — Editorial Policy &amp; News Standards</h1>` +
     `<p>${esc(settings.siteName)} is an independent digital news desk delivering clear, source-verified briefings on fast-moving stories across entertainment, sports, gaming, technology, science, and world news.</p>` +
     `<section><h2>Verification &amp; Multi-Outlet Sourcing</h2>` +
-    `<p>Every briefing published on this platform goes through automated multi-source corroboration and factual grounding checks. Before an article appears on ${esc(settings.siteName)}, key entities, dates, statistics, and event timelines must appear across at least two independent public news outlets.</p>` +
+    `<p>Every briefing published on this platform goes through automated multi-source corroboration and factual grounding checks. Before an article appears on ${esc(settings.siteName)}, key entities, dates, statistics, and event timelines must appear across at least two independent public news outlets. Each published briefing links transparently to its source reports and clearly states when details remain under review or await official confirmation.</p>` +
     `<ul><li>Every claim, figure, and calendar reference is checked against listed primary news publications before release.</li>` +
     `<li>Developing stories receive chronological timestamped updates whenever credible new details emerge from partner feeds.</li>` +
     `<li>Unverified rumors, single-source claims, spam links, and graphic violence are automatically excluded from publication.</li></ul></section>` +
     `<section><h2>Editorial Independence, Privacy &amp; Corrections</h2>` +
-    `<p>Our articles prioritize factual clarity, direct answers, and scannable summaries without intrusive popups or behavioral ad trackers. We never collect IP addresses or personal reader profiles.</p>` +
+    `<p>Our articles prioritize factual clarity, direct answers, and scannable summaries without intrusive popups or behavioral ad trackers. We never collect IP addresses or personal reader profiles. When a verifiable error or material omission is confirmed, our editorial desk appends a dated correction notice and updates affected timelines promptly.</p>` +
     `<ul><li>Follow breaking updates on <a href="https://t.me/trendingrightnow_news" rel="noopener">Telegram</a> or subscribe directly via our <a href="/rss.xml">RSS feed</a> and <a href="/news-sitemap.xml">Google News sitemap</a>.</li>` +
     `<li>Report factual corrections or editorial inquiries directly to <a href="mailto:${esc(settings.contactEmail)}">${esc(settings.contactEmail)}</a>.</li></ul></section></article>` +
     `<div class="f">${NAV_CATEGORIES.map(c => `<a class="bt" href="/c/${slugify(c)}">${esc(c)}</a>`).join('')}<a class="bt on" href="/">Top stories</a></div></main>` +
