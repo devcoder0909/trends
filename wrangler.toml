@@ -16,6 +16,13 @@ database_id = "5cb81308-7a86-4e9b-8801-b401b197f3c4"
 [ai]
 binding = "AI"
 
+# Unlimited free-tier static assets for permanent pillar images
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "none"
+not_found_handling = "none"
+
 # Environment variables
 [vars]
 SITE_HOST          = "trendingrightnow.online"         # hostname only (no https:// or trailing /)

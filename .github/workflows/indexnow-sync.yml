@@ -25,6 +25,15 @@ jobs:
 
           urls = [
               f'https://{HOST}/',
+              f'https://{HOST}/guides',
+              *(f'https://{HOST}/guides/{g}' for g in (
+                  'sports-injury-reports-explained',
+                  'when-movies-hit-streaming-guide',
+                  'check-app-game-server-status-outages',
+                  'reduce-cloud-gaming-lag-fps-guide',
+                  'weather-flight-cancellation-passenger-rights',
+                  'gold-silver-vs-crypto-market-drivers',
+              )),
               *(f'https://{HOST}/c/{c}' for c in ('news', 'sports', 'entertainment', 'tech', 'business', 'gaming', 'science', 'weather', 'holidays')),
           ]
           for block in re.findall(r'<url>([\s\S]*?)</url>', xml):

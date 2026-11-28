@@ -14,6 +14,7 @@ import { handleFetch, handleScheduled, canSendWebhookNow, getPublishAllowance } 
 import { processExpirationsAndExtensions } from '../src/lifetime.js';
 import { getSettings } from '../src/config.js';
 import { parseTrendsRSS } from '../src/rss.js';
+import { PILLAR_GUIDES } from '../src/pillars.js';
 
 /** Minimal D1-compatible wrapper backed by Node's built-in node:sqlite */
 function createD1Shim(sqlFile) {
@@ -468,6 +469,45 @@ async function run() {
     !pHourFull.canPublish && pHourFull.reason === 'hourly_cap' &&
     pNextHour.canPublish,
     `soon=${pTooSoon.reason}, ok9=${pAllowed9th.canPublish}, full=${pHourFull.reason}, nextHr=${pNextHour.canPublish}`
+  );
+
+  // Case 12: Permanent Pillar Guides (/guides, /guides/:slug, /img/guides/:slug.jpg, static assets & bidirectional Hub-and-Spoke links)
+  const guidesIdxRes = await handleFetch(new Request('https://trends.example.com/guides'), uiEnv, ctx);
+  const guidesIdxHtml = await guidesIdxRes.text();
+  const pillarRes = await handleFetch(new Request('https://trends.example.com/guides/sports-injury-reports-explained'), uiEnv, ctx);
+  const pillarHtml = await pillarRes.text();
+  const pillarMissingRes = await handleFetch(new Request('https://trends.example.com/guides/nonexistent-guide'), uiEnv, ctx);
+  const pillarImgRes = await handleFetch(new Request('https://trends.example.com/img/guides/sports-injury-reports-explained.jpg'), uiEnv, ctx);
+  const sportsHubHtml = await (await handleFetch(new Request('https://trends.example.com/c/sports'), uiEnv, ctx)).text();
+  const sportsSpokeHtml = await (await handleFetch(new Request('https://trends.example.com/p/topic-14'), uiEnv, ctx)).text();
+  const guidesSitemap = await (await handleFetch(new Request('https://trends.example.com/sitemap.xml'), uiEnv, ctx)).text();
+  const guidesLlms = await (await handleFetch(new Request('https://trends.example.com/llms.txt'), uiEnv, ctx)).text();
+  const metaGateOk = PILLAR_GUIDES.length >= 6 && PILLAR_GUIDES.every(g =>
+    g.title.length >= 30 && g.title.length <= 60 &&
+    g.metaDesc.length >= 120 && g.metaDesc.length <= 158 &&
+    fs.existsSync(`public${g.image}`) && fs.statSync(`public${g.image}`).size > 10_000
+  );
+  record(
+    'Permanent Pillar Guides: /guides, /guides/:slug, /img/guides/*.jpg assets, sitemap & Hub-Spoke links',
+    metaGateOk &&
+    guidesIdxRes.status === 200 &&
+    guidesIdxHtml.includes('/guides/sports-injury-reports-explained') &&
+    guidesIdxHtml.includes('/guides/gold-silver-vs-crypto-market-drivers') &&
+    pillarRes.status === 200 &&
+    pillarHtml.includes('FAQPage') &&
+    pillarHtml.includes('ItemList') &&
+    pillarHtml.includes('<table') &&
+    pillarHtml.includes('/p/topic-14') &&
+    pillarHtml.includes('og:image:width" content="1200"') &&
+    pillarHtml.includes('og:image:height" content="675"') &&
+    pillarMissingRes.status === 404 &&
+    pillarImgRes.status === 200 &&
+    sportsHubHtml.includes('/guides/sports-injury-reports-explained') &&
+    sportsSpokeHtml.includes('/guides/sports-injury-reports-explained') &&
+    guidesSitemap.includes('<loc>https://trends.example.com/guides/sports-injury-reports-explained</loc>') &&
+    guidesSitemap.includes('<priority>0.95</priority>') &&
+    guidesLlms.includes('## Permanent Pillar Guides'),
+    `guides=${PILLAR_GUIDES.length}, img=${pillarImgRes.status}, miss=${pillarMissingRes.status}`
   );
 
   const failed = results.filter(r => !r.ok).length;

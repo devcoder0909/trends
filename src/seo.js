@@ -7,6 +7,7 @@
 
 import { slugify, NAV_CATEGORIES } from './render.js';
 import { stripInlineSourceTags } from './config.js';
+import { PILLAR_GUIDES } from './pillars.js';
 
 const esc = s => String(s || '')
   .replace(/&/g, '&amp;')
@@ -25,6 +26,10 @@ export function sitemapXml(posts, siteUrl) {
   const latestMod = posts[0] ? (posts[0].updated_at || posts[0].created_at) : '';
   x += `<url><loc>${siteUrl}/</loc>${latestMod ? `<lastmod>${esc(latestMod)}</lastmod>` : ''}<changefreq>always</changefreq><priority>1.0</priority><image:image><image:loc>${siteUrl}/og.png</image:loc><image:title>Trending Now</image:title></image:image></url>`;
   x += `<url><loc>${siteUrl}/about</loc><priority>0.3</priority></url>`;
+  x += `<url><loc>${siteUrl}/guides</loc><changefreq>weekly</changefreq><priority>0.9</priority><image:image><image:loc>${siteUrl}/og.png</image:loc><image:title>Permanent Guides — Trending Now</image:title></image:image></url>`;
+  for (const g of PILLAR_GUIDES) {
+    x += `<url><loc>${siteUrl}/guides/${esc(g.slug)}</loc><lastmod>${esc(g.updatedAt)}</lastmod><changefreq>weekly</changefreq><priority>0.95</priority><image:image><image:loc>${siteUrl}${esc(g.image)}</image:loc><image:title>${esc(g.title)}</image:title></image:image></url>`;
+  }
 
   const catLatest = new Map();
   for (const p of posts) {
@@ -111,6 +116,9 @@ export function llmsTxt(posts, siteUrl, siteName = 'Trending Now') {
     '',
     '## Categories',
     ...NAV_CATEGORIES.map(c => `- [${c}](${siteUrl}/c/${slugify(c)}): Latest verified ${c.toLowerCase()} briefings`),
+    '',
+    '## Permanent Pillar Guides',
+    ...PILLAR_GUIDES.map(g => `- [${g.title}](${siteUrl}/guides/${g.slug}): ${g.metaDesc}`),
     '',
     '## Latest Live Briefings',
     ...posts.slice(0, 20).map(p => `- [${p.title}](${siteUrl}/p/${p.slug}): ${stripInlineSourceTags(p.summary || p.what_happened || '', p.sources)}`),

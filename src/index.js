@@ -14,9 +14,10 @@ import { getSettings, isSensitive, normalizeHost, PREFERRED_CATEGORIES } from '.
 import { parseTrendsRSS, fetchGoogleNews, mergeSources, rankTopics, extractHighResSourceImage } from './rss.js';
 import { generateAndValidatePost, buildUpdateFromFreshSources } from './content.js';
 import { shouldCountSearchHit, recordSearchHit, processExpirationsAndExtensions } from './lifetime.js';
+import { PILLAR_GUIDES, getPillarBySlug, getPillarForCategory } from './pillars.js';
 import {
   PER_PAGE, BACK_SCRIPT_HASH, SWG_SCRIPT_HASH, slugify,
-  homePage, categoryPage, searchPage, postPage, aboutPage, notFoundPage, gonePage, endedPage,
+  homePage, categoryPage, searchPage, postPage, guidesIndexPage, guidePage, aboutPage, notFoundPage, gonePage, endedPage,
 } from './render.js';
 import { sitemapXml, newsSitemapXml, robotsTxt, llmsTxt, rssFeed, pingIndexNow, pingWebSub, pingGoogleIndexing } from './seo.js';
 import { publishToSocial } from './social.js';
@@ -36,7 +37,7 @@ const createBudget = (max = 42) => {
   };
 };
 
-const EDGE_CACHE_VER = '?__v=7';
+const EDGE_CACHE_VER = '?__v=8';
 
 async function purgeEdgePaths(siteHost, paths) {
   const edgeCache = typeof caches !== 'undefined' && caches.default ? caches.default : null;
@@ -587,9 +588,12 @@ export async function handleScheduled(env) {
         liveRows.push({ title: post.title, topic: item.title });
         if (status === 'published') {
           const catPath = `/c/${slugify(post.category || 'News')}`;
+          const guidePath = `/guides/${getPillarForCategory(post.category || 'News').slug}`;
           touchedCats.add(catPath);
           touchedCats.add(`${catPath}/rss.xml`);
-          newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}/`);
+          touchedCats.add('/guides');
+          touchedCats.add(guidePath);
+          newUrls.push(`${siteUrl}/p/${hash}`, `${siteUrl}${catPath}`, `${siteUrl}${guidePath}`, `${siteUrl}/`);
           publishedPosts.push({
             slug: hash,
             title: post.title,
@@ -705,6 +709,25 @@ export async function handleFetch(request, env, ctx) {
     });
   }
 
+  if (path.startsWith('/img/guides/')) {
+    if (env.ASSETS?.fetch) {
+      const assetRes = await env.ASSETS.fetch(request);
+      if (assetRes && assetRes.status !== 404) return assetRes;
+    }
+    const gSlug = path.replace(/^\/img\/guides\//, '').replace(/\.[^.]+$/, '').toLowerCase();
+    const guide = getPillarBySlug(gSlug);
+    if (!guide) return new Response('Not Found', { status: 404, headers: SECURITY_HEADERS });
+    const png = await generateOgPng({ title: guide.title, category: guide.category, siteName: settings.siteName, host: hostNorm });
+    return new Response(png, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, s-maxage=604800, max-age=86400',
+        'X-Robots-Tag': 'index, max-image-preview:large',
+        ...SECURITY_HEADERS,
+      },
+    });
+  }
+
   const isSiteEnded = Boolean(env.SITE_END_AT && nowMs > Date.parse(env.SITE_END_AT));
   if (isSiteEnded) {
     const liveCount = (await db.prepare(
@@ -729,6 +752,8 @@ export async function handleFetch(request, env, ctx) {
     (path === '/' && !url.searchParams.has('page')) ||
     path.startsWith('/page/') ||
     path === '/about' ||
+    path === '/guides' ||
+    path.startsWith('/guides/') ||
     path === '/sitemap.xml' ||
     path === '/news-sitemap.xml' ||
     path === '/rss.xml' ||
@@ -845,6 +870,30 @@ export async function handleFetch(request, env, ctx) {
   }
 
   if (path === '/about') return cacheAndReturn(htmlRes(aboutPage(settings, siteUrl), 200, SEO_INDEX_HEADERS));
+
+  if (path === '/guides' || path === '/guides/') {
+    const recentPosts = (await db.prepare(
+      "SELECT slug, title, category, created_at FROM topics WHERE status = 'published' AND expires_at > ? ORDER BY created_at DESC LIMIT 80"
+    ).bind(now).all()).results || [];
+    return cacheAndReturn(htmlRes(guidesIndexPage(recentPosts, settings, siteUrl), 200, SEO_INDEX_HEADERS));
+  }
+
+  if (path.startsWith('/guides/')) {
+    const gSlug = path.slice(8).replace(/\/+$/, '').toLowerCase();
+    const guide = getPillarBySlug(gSlug);
+    if (!guide) return htmlRes(notFoundPage(settings, siteUrl), 404, { 'X-Robots-Tag': 'noindex, follow' });
+    const cats = guide.clusterCats?.length ? guide.clusterCats : [guide.category];
+    const placeholders = cats.map(() => '?').join(', ');
+    const clusterPosts = (await db.prepare(
+      `SELECT slug, title, summary, category, created_at, updated_at FROM topics WHERE status = 'published' AND expires_at > ? AND category IN (${placeholders}) ORDER BY created_at DESC LIMIT 12`
+    ).bind(now, ...cats).all()).results || [];
+    const lastModIso = [guide.updatedAt, clusterPosts[0]?.updated_at, clusterPosts[0]?.created_at]
+      .filter(Boolean).sort().pop() || guide.updatedAt;
+    return cacheAndReturn(htmlRes(guidePage(guide, clusterPosts, settings, siteUrl, nowMs), 200, {
+      ...SEO_INDEX_HEADERS,
+      'Last-Modified': new Date(lastModIso).toUTCString(),
+    }));
+  }
 
   // Targeted projections & SQL-level filters cut D1 row reads by ~75% across routes
   const liveSummary = async () => (await db.prepare(

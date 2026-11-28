@@ -4,6 +4,7 @@
  */
 
 import { formatDisplayTopic, stripInlineSourceTags } from './config.js';
+import { PILLAR_GUIDES, getPillarForCategory } from './pillars.js';
 import { LOGO_SVG } from './logo.js';
 
 export const PER_PAGE = 10;
@@ -119,9 +120,9 @@ function htmlHead(title, desc, canon, geos = [], extra = '', ogType = 'article',
   const imgUrl = ogImage || (canon ? `${new URL(canon).origin}/og.png` : '/og.png');
   const ogUrl = canon ? `<meta property="og:url" content="${canon}">` : '';
   const preconnect = '<link rel="preconnect" href="https://news.google.com"><link rel="dns-prefetch" href="https://news.google.com">';
-  const imgDims = /\/og(?:\/|\.png)/i.test(imgUrl)
-    ? '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
-    : '';
+  const imgDims = /\/img\/guides\//i.test(imgUrl)
+    ? '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="675">'
+    : (/\/og(?:\/|\.png)/i.test(imgUrl) ? '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">' : '');
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#111111"><title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${robotsTag}${canonTag}<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="icon" type="image/png" sizes="256x256" href="/logo.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">${preconnect}<meta property="og:locale" content="en_US"><meta property="og:title" content="${esc(title)}"><meta property="og:description" content="${esc(desc)}">${ogUrl}<meta property="og:type" content="${ogType}"><meta property="og:image" content="${esc(imgUrl)}"><meta property="og:image:alt" content="${esc(title)}">${imgDims}<meta property="og:site_name" content="Trending Now"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${esc(title)}"><meta name="twitter:description" content="${esc(desc)}"><meta name="twitter:image" content="${esc(imgUrl)}"><meta name="twitter:image:alt" content="${esc(title)}"><link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml"><link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">${extra}<style>${CSS}</style></head><body>`;
 }
 
@@ -134,7 +135,7 @@ function siteHeader(siteName, activeTab = 'home', searchQuery = '') {
     : `<b>${esc(siteName)}</b>`;
   const tab = (slug, label, href) =>
     `<a${activeTab === slug ? ' class="on"' : ''} href="${href}">${label}</a>`;
-  const navLinks = tab('home', 'Home', '/') + NAV_CATEGORIES.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
+  const navLinks = tab('home', 'Home', '/') + tab('guides', 'Guides', '/guides') + NAV_CATEGORIES.map(c => tab(slugify(c), c, `/c/${slugify(c)}`)).join('');
   return `<header><div class="w h"><div class="f"><a class="b f" href="/">${LOGO_SVG}<span>${brandHtml}</span></a><details class="qs" style="position:relative"><summary class="bt" aria-label="Search">${SEARCH_ICON}</summary><form class="f c qf" style="position:absolute;right:0;top:36px;width:265px;margin:0;padding:3px 3px 3px 9px;z-index:9" action="/search" method="GET" role="search" toolname="search_briefings" tooldescription="Search live verified trending news briefings by keyword or category"><input type="search" name="q" value="${esc(searchQuery)}" placeholder="Search topics &amp; sources..." aria-label="Search topics, news and sources" required><button class="bt on" type="submit">Go</button></form></details></div><nav class="t" aria-label="Categories">${navLinks}</nav></div></header>`;
 }
 
@@ -143,7 +144,7 @@ function htmlFoot(email) {
     .map(c => `<a href="/c/${slugify(c)}">${esc(c)}</a>`)
     .join(' · ');
   const yr = new Date().getFullYear();
-  return `<footer class="w m" role="contentinfo"><p>Hubs: <a href="/">Home</a> · ${catSilos}</p><p>© ${yr} Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
+  return `<footer class="w m" role="contentinfo"><p>Hubs: <a href="/">Home</a> · <a href="/guides">Guides</a> · ${catSilos}</p><p>© ${yr} Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
 }
 
 function renderBackBar(crumbs = [], currentLabel = '', backHref = '/') {
@@ -410,6 +411,9 @@ export function homePage(posts, settings, siteUrl, nowMs = Date.now(), rawPage =
   h += siteHeader(settings.siteName, 'home') + '<main class="w">';
   if (pg.page > 1) h += renderBackBar([{ label: 'Home', href: '/' }], `Page ${pg.page}`, '/');
   h += `<h1>Top stories${pg.page > 1 ? ` · Page ${pg.page}` : ''}</h1>`;
+  if (pg.page === 1) {
+    h += `<nav class="c" aria-label="Permanent Guides"><div class="f j"><p class="m"><strong>Permanent Topic Guides</strong> · Evergreen Reference Hubs</p><a class="m" href="/guides">All guides &rarr;</a></div><div class="f" style="margin-top:6px">${PILLAR_GUIDES.map(g => `<a class="bt" href="/guides/${esc(g.slug)}">${esc(g.shortLabel)}</a>`).join('')}</div></nav>`;
+  }
   for (let i = 0; i < pg.items.length; i++) {
     h += renderStoryCard(pg.items[i], posts, nowMs, true, i === 0);
   }
@@ -476,6 +480,10 @@ export function categoryPage(categoryName, posts, settings, siteUrl, nowMs = Dat
     if (topicNames.length) {
       h += `<p class="m">Live ${esc(catLower)} coverage hub tracking verified updates across ${esc(topicNames.join(', '))}.</p>`;
     }
+  }
+  if (pg.page === 1) {
+    const catPillar = getPillarForCategory(categoryName);
+    h += `<aside class="c"><p class="m"><strong>Permanent ${esc(categoryName)} Guide</strong> · Evergreen Reference</p><p><a href="/guides/${esc(catPillar.slug)}"><strong>${esc(catPillar.title)}</strong> &rarr;</a></p><p class="m">${esc(catPillar.metaDesc)}</p></aside>`;
   }
   for (let i = 0; i < pg.items.length; i++) {
     h += renderStoryCard(pg.items[i], posts, nowMs, false, i === 0);
@@ -651,6 +659,9 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
   h += renderPostBody(post, livePosts, nowMs);
   h += `</article>`;
 
+  const pillar = getPillarForCategory(cat);
+  h += `<aside class="c"><p class="m"><strong>Permanent ${esc(cat)} Hub Guide</strong></p><p><a href="/guides/${esc(pillar.slug)}"><strong>${esc(pillar.title)}</strong> &rarr;</a></p><p class="m">${esc(pillar.metaDesc)}</p></aside>`;
+
   if (related.length) {
     h += `<nav class="c" aria-label="Related briefings"><div class="f j"><p class="m"><strong>More in ${esc(cat)}</strong></p><a class="m" href="/c/${esc(catSlug)}">${esc(cat)} hub &rarr;</a></div><div class="r g">`;
     for (const r of related) {
@@ -660,7 +671,230 @@ export function postPage(post, related, livePosts, settings, siteUrl, nowMs = Da
     }
     h += '</div></nav>';
   }
-  h += `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a><a class="bt" href="/">Top stories</a></div></main>` + htmlFoot(settings.contactEmail);
+  h += `<div class="f"><a class="bt" href="/" data-bk="1">&larr; Back</a><a class="bt" href="/guides">All guides</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a><a class="bt" href="/">Top stories</a></div></main>` + htmlFoot(settings.contactEmail);
+  return h;
+}
+
+function renderGuideTable(tbl) {
+  if (!tbl?.headers?.length || !tbl?.rows?.length) return '';
+  const th = tbl.headers.map(c => `<th style="border-bottom:1px solid #234;padding:6px 8px;text-align:left">${esc(c)}</th>`).join('');
+  const trs = tbl.rows.map(r => `<tr>${r.map(c => `<td style="border-bottom:1px solid #234;padding:6px 8px;vertical-align:top">${esc(c)}</td>`).join('')}</tr>`).join('');
+  return `<div style="overflow-x:auto;margin:8px 0"><table style="width:100%;border-collapse:collapse;font-size:14px">${tbl.caption ? `<caption class="m" style="text-align:left;margin-bottom:4px">${esc(tbl.caption)}</caption>` : ''}<thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table></div>`;
+}
+
+export function guidesIndexPage(livePosts = [], settings, siteUrl) {
+  const title = clampTitle(`Permanent Topic Guides & Hubs — ${settings.siteName}`);
+  const desc = clampMeta('Explore permanent research-backed guides on sports injuries, streaming windows, server status, cloud gaming FPS, storm travel refunds, and market drivers.');
+  const canon = `${siteUrl}/guides`;
+  const countByCats = cats => livePosts.filter(p => (cats || []).includes(p.category || 'News')).length;
+  const ld = JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'CollectionPage',
+      name: title,
+      url: canon,
+      description: desc,
+      inLanguage: 'en',
+      publisher: { '@id': `${siteUrl}/#publisher` },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: `${siteUrl}/` },
+        { '@type': 'ListItem', position: 2, name: 'Guides', item: canon },
+      ],
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: 'Permanent Topic Guides',
+      itemListElement: PILLAR_GUIDES.map((g, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        url: `${siteUrl}/guides/${g.slug}`,
+        name: g.title,
+      })),
+    },
+  ]).replace(/<\//g, '<\\/');
+
+  let h = htmlHead(title, desc, canon, settings.geos, `<script type="application/ld+json">${ld}</script>`, 'website', `${siteUrl}/og.png`);
+  h += siteHeader(settings.siteName, 'guides') + '<main class="w">';
+  h += renderBackBar([{ label: 'Home', href: '/' }], 'Guides', '/');
+  h += `<h1>Permanent Topic Guides &amp; Reference Hubs</h1>`;
+  h += `<p class="sum">Comprehensive, permanently maintained reference guides anchored to live ${esc(settings.siteName)} coverage hubs. Every guide pairs verified policy, technical, or market rules with live breaking briefings.</p>`;
+  h += '<div class="r g">';
+  PILLAR_GUIDES.forEach((g, idx) => {
+    const liveCnt = countByCats(g.clusterCats);
+    const catSlug = slugify(g.category);
+    h += `<article class="c">`;
+    h += `<a href="/guides/${esc(g.slug)}"><img src="${esc(g.image)}" alt="${esc(g.imageAlt)}" width="1200" height="675" decoding="async"${idx === 0 ? ' fetchpriority="high"' : ' loading="lazy"'}></a>`;
+    h += `<p class="m"><a class="k" href="/c/${esc(catSlug)}">${esc(g.category)}</a> · Permanent Hub${liveCnt ? ` · ${liveCnt} live ${liveCnt === 1 ? 'story' : 'stories'}` : ''}</p>`;
+    h += `<h2><a href="/guides/${esc(g.slug)}">${esc(g.title)}</a></h2>`;
+    h += `<p>${esc(g.metaDesc)}</p>`;
+    h += `<div class="f j"><a class="k m" href="/c/${esc(catSlug)}">${esc(g.category)} hub &rarr;</a><a class="bt on" href="/guides/${esc(g.slug)}">Read guide &rarr;</a></div>`;
+    h += `</article>`;
+  });
+  h += '</div></main>' + htmlFoot(settings.contactEmail);
+  return h;
+}
+
+export function guidePage(guide, clusterPosts = [], settings, siteUrl, nowMs = Date.now()) {
+  const cat = guide.category || 'News';
+  const catSlug = slugify(cat);
+  const canon = `${siteUrl}/guides/${guide.slug}`;
+  const title = clampTitle(guide.title);
+  const desc = clampMeta(guide.metaDesc);
+  const imgUrl = `${siteUrl}${guide.image}`;
+  const dateModified = [guide.updatedAt, clusterPosts[0]?.updated_at, clusterPosts[0]?.created_at]
+    .filter(Boolean).sort().pop() || guide.updatedAt;
+  const wordText = [
+    guide.quickAnswer,
+    ...(guide.sections || []).flatMap(s => [
+      s.heading,
+      ...(s.paragraphs || []),
+      ...(s.bullets || []),
+      ...(s.table?.rows || []).flat(),
+    ]),
+    ...(guide.faqs || []).flatMap(f => [f.q, f.a]),
+  ].join(' ');
+  const readWords = wordText.trim().split(/\s+/).filter(Boolean).length;
+  const readMins = Math.max(4, Math.round(readWords / 200));
+  const sourceUrls = (guide.sources || []).map(s => s.url).filter(Boolean);
+
+  const ldArr = [
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Article',
+      headline: guide.title,
+      alternativeHeadline: desc,
+      datePublished: guide.publishedAt,
+      dateModified,
+      description: desc,
+      image: [
+        { '@type': 'ImageObject', url: imgUrl, width: 1200, height: 675 },
+      ],
+      thumbnailUrl: imgUrl,
+      wordCount: readWords,
+      timeRequired: `PT${readMins}M`,
+      articleSection: cat,
+      keywords: guide.keywords,
+      inLanguage: 'en-US',
+      isAccessibleForFree: true,
+      publishingPrinciples: `${siteUrl}/about`,
+      ...(sourceUrls.length ? { citation: sourceUrls, isBasedOn: sourceUrls } : {}),
+      speakable: { '@type': 'SpeakableSpecification', cssSelector: ['h1', '.sum'] },
+      mainEntityOfPage: { '@type': 'WebPage', '@id': canon },
+      author: { '@type': 'Organization', name: `${settings.siteName} Editorial Desk`, url: `${siteUrl}/about` },
+      publisher: {
+        '@type': ['Organization', 'NewsMediaOrganization'],
+        '@id': `${siteUrl}/#publisher`,
+        name: settings.siteName,
+        url: siteUrl,
+        sameAs: ['https://t.me/trendingrightnow_news'],
+        logo: { '@type': 'ImageObject', url: `${siteUrl}/logo.png`, width: 256, height: 256 },
+      },
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: `${siteUrl}/` },
+        { '@type': 'ListItem', position: 2, name: 'Guides', item: `${siteUrl}/guides` },
+        { '@type': 'ListItem', position: 3, name: guide.title, item: canon },
+      ],
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: (guide.faqs || []).map(f => ({
+        '@type': 'Question',
+        name: f.q,
+        acceptedAnswer: { '@type': 'Answer', text: f.a },
+      })),
+    },
+  ];
+  if (clusterPosts.length) {
+    ldArr.push({
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: `${guide.shortLabel} — Live Cluster Briefings`,
+      itemListElement: clusterPosts.map((p, i) => ({
+        '@type': 'ListItem',
+        position: i + 1,
+        url: `${siteUrl}/p/${p.slug}`,
+        name: p.title,
+      })),
+    });
+  }
+
+  const ldScripts = `<script type="application/ld+json">${JSON.stringify(ldArr).replace(/<\//g, '<\\/')}</script>`;
+  const preloadTag = `<link rel="preload" as="image" href="${esc(guide.image)}" fetchpriority="high">`;
+  let h = htmlHead(title, desc, canon, settings.geos, `${preloadTag}${ldScripts}`, 'article', imgUrl);
+  h = h.replace('</head>', `<meta property="article:published_time" content="${esc(guide.publishedAt)}"><meta property="article:modified_time" content="${esc(dateModified)}"><meta property="article:section" content="${esc(cat)}"></head>`);
+  h += siteHeader(settings.siteName, 'guides') + '<main class="w">';
+  h += renderBackBar(
+    [{ label: 'Home', href: '/' }, { label: 'Guides', href: '/guides' }],
+    clampTitle(guide.shortLabel || guide.title, 34),
+    '/guides'
+  );
+
+  h += `<article class="c" id="${esc(guide.slug)}">`;
+  h += `<p class="m"><a class="k" href="/c/${esc(catSlug)}">${esc(cat)}</a> · Permanent Guide · Updated <time datetime="${esc(dateModified)}">${dateModified.slice(0, 10)}</time> · ${readMins} min read</p>`;
+  h += `<h1>${esc(guide.title)}</h1>`;
+  h += `<div class="r"><figure><img src="${esc(guide.image)}" alt="${esc(guide.imageAlt)}" width="1200" height="675" decoding="async" fetchpriority="high"><figcaption class="m">${esc(guide.imageAlt)}</figcaption></figure>`;
+  h += `<div class="d"><p class="sum">${esc(guide.quickAnswer)}</p><div class="f" style="margin-top:6px"><a class="bt" href="#toc">Contents</a><a class="bt" href="#live-briefings">Live cluster</a><a class="bt" href="#faq">FAQ</a><a class="bt on" href="/c/${esc(catSlug)}">${esc(cat)} hub</a></div></div></div>`;
+
+  h += `<nav id="toc" class="c" aria-label="Table of contents"><h2>In This Guide</h2><ul>`;
+  for (const sec of guide.sections || []) {
+    h += `<li><a href="#${esc(sec.id)}">${esc(sec.heading)}</a></li>`;
+  }
+  h += `<li><a href="#live-briefings">Live &amp; Developing ${esc(cat)} Coverage</a></li>`;
+  h += `<li><a href="#faq">Frequently Asked Questions</a></li>`;
+  h += `<li><a href="#sources">Primary References &amp; Standards</a></li></ul></nav>`;
+
+  for (const sec of guide.sections || []) {
+    h += `<section id="${esc(sec.id)}"><h2>${esc(sec.heading)}</h2>`;
+    for (const para of sec.paragraphs || []) {
+      h += `<p>${esc(para)}</p>`;
+    }
+    if (sec.table) h += renderGuideTable(sec.table);
+    if (sec.bullets?.length) {
+      h += '<ul>' + sec.bullets.map(b => `<li>${esc(b)}</li>`).join('') + '</ul>';
+    }
+    h += '</section>';
+  }
+
+  h += `<section id="live-briefings"><h2>Live &amp; Developing ${esc(cat)} Coverage</h2>`;
+  if (clusterPosts.length) {
+    h += `<p class="m">Verified real-time stories currently connected to this pillar hub:</p><ul>`;
+    for (const cp of clusterPosts) {
+      h += `<li><a href="/p/${esc(cp.slug)}"><strong>${esc(cp.title)}</strong></a> <span class="m">· ${timeAgo(cp.created_at, nowMs)}</span>${cp.summary ? ` — ${esc(stripInlineSourceTags(cp.summary, ''))}` : ''}</li>`;
+    }
+    h += '</ul>';
+  } else {
+    h += `<p>Explore ongoing verified briefings anytime in our <a href="/c/${esc(catSlug)}">${esc(cat)} coverage hub</a>.</p>`;
+  }
+  h += `</section>`;
+
+  if (guide.faqs?.length) {
+    h += '<section id="faq"><h2>Frequently Asked Questions</h2>';
+    for (const f of guide.faqs) {
+      h += `<h3>${esc(f.q)}</h3><p>${esc(f.a)}</p>`;
+    }
+    h += '</section>';
+  }
+
+  if (guide.sources?.length) {
+    h += '<section id="sources"><h2>Primary References &amp; Standards</h2><ul>';
+    for (const s of guide.sources) {
+      h += `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name)}</a></li>`;
+    }
+    h += '</ul></section>';
+  }
+
+  h += '</article>';
+  h += `<div class="f"><a class="bt" href="/guides">&larr; All guides</a><a class="bt" href="/c/${esc(catSlug)}">${esc(cat)} hub</a><a class="bt" href="/">Top stories</a></div></main>` + htmlFoot(settings.contactEmail);
   return h;
 }
 
