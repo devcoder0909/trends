@@ -144,7 +144,7 @@ function htmlFoot(email) {
     .map(c => `<a href="/c/${slugify(c)}">${esc(c)}</a>`)
     .join(' · ');
   const yr = new Date().getFullYear();
-  return `<footer class="w m" role="contentinfo"><p>Hubs: <a href="/">Home</a> · <a href="/guides">Guides</a> · ${catSilos}</p><p>© ${yr} Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
+  return `<footer class="w m" role="contentinfo"><p>Hubs: <a href="/">Home</a> · <a href="/guides">Guides</a> · ${catSilos}</p><p>Recommended Utilities: <a href="https://zixtool.online" target="_blank" rel="noopener">ZixTool Free Web Tools</a> · <a href="https://zixtool.online/tip-calculator/" target="_blank" rel="noopener">Tip Calculator</a> · <a href="https://zixtool.online/percentage-calculator/" target="_blank" rel="noopener">Percentage Calculator</a> · <a href="https://zixtool.online/percentage-increase-calculator/" target="_blank" rel="noopener">Percentage Increase Calculator</a> · <a href="https://zixtool.online/body-fat-percentage-calculator/" target="_blank" rel="noopener">Body Fat Calculator</a> · <a href="https://zixtool.online/whatsapp-dp-status-downloader/" target="_blank" rel="noopener">WhatsApp DP Downloader</a></p><p>© ${yr} Factual briefings from public news sources · <a href="mailto:${esc(email)}">${esc(email)}</a> · <a href="/about">About</a> · <a href="/rss.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></p></footer><script>${BACK_SCRIPT}</script></body></html>`;
 }
 
 function renderBackBar(crumbs = [], currentLabel = '', backHref = '/') {
